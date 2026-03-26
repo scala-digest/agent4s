@@ -2,115 +2,15 @@
 
 ## Pending
 
-### README refresh
-
-- [x] Simplify the introduction, installation, and examples; document Codex and Claude Code plugin upgrades and correct outdated capability claims
-
-### Release 1.41.0
-
-- [x] Prepare the dated changelog and application version for the release PR
-- [x] Merge the release PR, then tag and publish native binaries
-- [x] Update plugin versions and checksums from the published release assets
-- [ ] Fix combined release checksum generation: the current path-stripping command also removes hashes; individual `.sha256` assets are valid
-
-### Faster PR checks
-
-- [x] Cache dependency downloads and Mill build outputs with toolchain-aware keys, preserving all test and native checks
-- [x] Validate cold and restored-cache runs: 4m04s → 1m45s on the same commit, with all 505 tests and native smoke checks passing
-
-### Symbol diff correctness (#366)
-
-- [x] Reproduce line-shift false positives, missed body edits, ignored path filters, and the silent file cap in regression tests; also reproduce collapsed overloads and same-named methods in different owners
-- [x] Compare declaration content independently of source position, preserve owners and overloads, apply file filters before analysis, and limit display rather than examined files
-- [x] Validate nine diff regressions, all 505 tests, native issue reproductions, and performance: unchanged 41,121,631-byte index, cold indexing +2.3% within budget, warm indexing −4.5%, definition −2.1%, references +1.2% within observed run variability
-
-### Shared skill redesign
-
-- [x] Replace the long command tutorial with concise query selection and evidence interpretation; consolidate detailed syntax in the command reference and validate shared packaging (frontmatter, links, 496 tests, and benchmark compilation)
-
-### Native parsing parity and measured query performance
-
-- [x] Reproduce and fix native-only Java parse failures, with a native regression check (492 JVM tests; full-workspace native/JVM parity)
-- [x] Reuse deserialized file paths and avoid full name-map construction for simple isolated lookups; preserve reusable indexes for qualified/composite/batch queries
-- [x] Reuse reference confidence, sort keys, and classification patterns without changing results
-- [x] Measure complete requests and command/render phases without double-counting nested timings
-- [x] Document opt-in native heap tuning; keep portable defaults unchanged
-- [x] Validate native/JVM parity, 496 tests, and separate before/after performance measurements: definition latency −47%, references −46%, unchanged cache size, cold indexing within the 5% budget
-
-### Architecture and reliability cleanup
-
-- [x] Upgrade Scala, Mill, libraries, and formatting tools to the latest stable releases and validate compatibility
-- [x] Preserve valid JSON under output budgets; route summaries and diagnostics through typed command results
-- [x] Propagate Git failures and CLI usage errors with structured diagnostics and nonzero exit codes
-- [x] Construct immutable, ready-to-query workspace index snapshots
-- [x] Separate query filters, output options, and command options; centralize command metadata
-- [x] Organize Git, persistence, scanning, extraction, models, and rendering by responsibility with explicit ownership
-- [x] Strengthen regression and process-level tests; use a standard test-only JSON parser
-- [x] Make temporary test repositories independent of global Git identity and signing settings
-- [x] Run tests, fatal-warning compilation, and shared skill validation in PR CI
-- [x] Consolidate contributor/build documentation and normalize Scala brace/import conventions
-- [x] Validate all 491 tests, fatal-warning compilation, formatting, and native CLI smoke checks
-- [x] Benchmark the latest build separately: cold index, warm index, query latency, cache size, CPU/allocation profiles, and native GC
-
-- [x] Codex CLI and desktop plugin packaging, marketplace installation, and shared skill validation (local install verified with Codex CLI 0.153.4)
-- [ ] Publish Codex marketplace changes and verify installation from GitHub; optionally submit to OpenAI's public plugin directory
 - [ ] Publish plugin to Claude Code marketplace
 
-### Simplicity review: remove dead code and single-use abstractions (no behavior change except noted)
+### MCP server — use scalex from Cursor, Windsurf, Cline, and any MCP-compatible tool
 
-- [x] graph module: delete dead library surface (`EdgeType`/`connections`, `CrossingCalculator`, `OccupancyGrid`, `GraphUtils.topologicalSort`/`hasCycle`, six unused `Graph` methods, `QuadTree.collisions`, `Utils.removeFirst`/`signum`, misc dead members)
-- [x] graph module: collapse single-implementation abstractions (`Lens` machinery, `VertexRenderingStrategy`, `LayoutPrefs`/`RendererPrefs` trait tower, redundant `renderGraph` overload); replace the twelve per-character renderer defs with three indexed glyph strings; fix swapped `lineHorizontalChar`/`lineVerticalChar` names; `Direction` as Scala 3 enum
-- [x] Bug fix: `Diagram` parsing drops sibling nested boxes (`boxContains` keyed `.toMap` by outer box keeps only the last pair); each box now links to its smallest container (regression test added)
-- [x] Perf fix: `collectText` rebuilds the all-edge-labels point set once per scanned character; hoisted to a parser-level lazy val
-- [x] src/: delete parallel types (`AstPatternMatch` → reuse `SymbolInfo`; dead `CategorizedRef`; `OverviewData.hubTypes` → derive from `mostExtended`; dead `SymbolList.total`/`StringList.total`; dead `TestCaseInfo.suiteName`/`suiteFile`; `HierarchyNode` holds `Option[SymbolInfo]` instead of four parallel `Option` fields; explicit `CmdResult.Silent` replaces the empty-`StringList` sentinel). Behavior change: `ast-pattern --json` gains `parents`/`typeParamParents`/`annotations` fields (now shares `jsonSymbol`)
-- [x] src/: fold duplicated logic (`index()` cached/uncached parse branches, tier-ranking behind `search`/`searchFiles`/owner-scoped suggestions, `findImplementations` branches, `cmdGrep` result-building arms, `grepInSymbol` per-body file re-read, `renderOverview` concise/full print blocks, `renderCategorizedRefs` triple confidence resolve, `extractRawSymbols` type-defn arms, `fixPosixRegex` fallback, `jKindCounts`/`InheritedGroup` shared fragments)
-- [x] Micro-cleanups: identical `if` branches (`requiredWidth`), identical `catch` arms, `var`→`val`, pass-through aliases/wrappers, hand-rolled stdlib equivalents
-- Net: −443 lines across 29 files; deferred as not worth the churn: `KinkRemover` mirror-case helper (delicate choreography), `gitShowFile`/`runGitLines` unification (semantic differences in a perf-tuned area), `TestCaseResult`/`TestSuiteResult` merge, `SymbolKind.id` vs `ordinal` (persisted-format decoupling is deliberate)
-
-### Dedup refactor: extract reusable units across src/ (no behavior change except noted)
-
-- [x] JSON emission helpers (`jStr`/`jArr`/`jStrArr`/`jOpt`/`jsonMemberFields`/`jsonBodyFields`) replacing ~50 hand-rolled `jsonEscape` interpolation fragments in `format.scala`
-- [x] Bug fix: `grep --json` emits invalid JSON when the auto-corrected pattern contains `\` or `"` (unescaped `"corrected"` hint in `cmdGrep`)
-- [x] `overview --architecture/--concise` reads imports from the index (`WorkspaceIndex.fileImports`) instead of re-parsing every file from disk; reuses `parseImportTarget` instead of the hand-rolled lastDot package split (~3.7s → warm-query latency on scala3)
-- [x] Deadline-scan chassis (`DeadlineScan`): one shared parallel file-scan (deadline + result queue + unreadable counter + stderr report) behind `grepFiles`, `findReferences`, `findImports`; behavior fix: per-line deadline expiry now sets `timedOut` in all three
-- [x] Shared path/test filter predicate (`pathPredicate`) behind `filterSymbols`, `filterRefs`, `grepFiles`, `astPatternSearch`, `cmdTests`
-- [x] `requireArg` helper for the 21 identical `args.headOption match … UsageError` command preambles
-- [x] `buildMultiIndex` helper for the inverted lazy indexes (`parentIndex`, `typeParamParentIndex`, `annotationIndex`); `distinctBy` for `distinctSymbols`
-- [x] Shared name-match tier classifier (`nameMatchTier`) behind `search`, `searchFiles`, `mkOwnerScopedSuggestions`
-- [x] Context-window slicing helper + `readSourceLines` reuse in `format.scala` (fixes `renderSourceBlocks` reading the same file twice)
-- [x] Numbered source-line printer + member-line formatters; behavior change: line numbers uniformly left-aligned (refs `-C` previously right-aligned)
-- [x] `renderShown` truncation-footer helper across the render sites
-- [x] Java extraction helpers (`javaParams`, `javaMethodSig`, `javaFieldInfo`, `javaLine`, `addBody`) deduplicating symbol vs member vs body extraction
-- [x] `findTypeDefs` shared type-definition lookup across `members`/`body`/`def`/inherited-member collection
-- [x] Shared constants: `refCategoryOrder`, `Confidence.label/explanation`, `wildcardImportPkg`, `SymbolKind.label`; one recursive hierarchy printer for both directions
-- [x] Policy/layering: removed `return` from `bench.scala`; graph-command flag strip-list derived from `scalexFlags` registry (fixes `graph --render … --limit 5` corrupting the edge list); not-found hint computed in `cmdCoverage` instead of the renderer
-- [x] Guard tests: structural JSON validator sweep over every `--json` command; locks on search ranking, overview package deps, Java signature consistency, truncation footers, context rendering
-
-### clibase: reusable CLI base module + graph module extraction
-
-- [x] New `clibase` Mill module — app-agnostic CLI plumbing: declarative flag registry (declare a flag once: names, value shape, default, help), single-pass lenient parser (unknown `--long` flags ignored), typed `Flags` bag, generated options help, `Timings`, `OutputBudget` (line-boundary truncation), `BatchLoop` (stdin REPL)
-- [x] Migrate scalex onto clibase: delete `ParsedFlags`, the hand-written parser match, and the hand-written options help; each flag declared once in `src/flags.scala`; `CommandContext` built in a single place (`flagsToContext`)
-- [x] Extract the self-contained `asciiGraph` package (`src/graph/`) into its own `graph` Mill module
-- [x] Behavior change: when both `-w` and `--workspace` are passed, the last occurrence wins (was: `--workspace` always won)
-- [x] Behavior fix: `--expand` without a numeric value no longer consumes a following flag
-
-### Maintainability refactor (internal, no behavior change)
-
-- [x] Unify the duplicated member-extraction traversals (`extractScalaMembers` / `extractMembersWithSpans`) behind one origin-tagged core (`extractScalaMemberTree`)
-- [x] Factor the repeated body-slice blocks in `extractScalaBody` into a single `addBody` helper with a `TypeDefn` extractor
-- [x] Deduplicate the Scala 3 → Scala 2.13 parse fallback into `parseSource`; add `readSource`/`readSourceLines` helpers
-- [x] Rewrite `parseFlags` as a single position-aware pass — fixes positional args being dropped when they equal a flag value elsewhere in the arg list
-- [x] Return `timedOut` from `findReferences`/`findImports`/`categorizeReferences` as a value instead of a shared mutable field on `WorkspaceIndex`
-- [x] Close git subprocess readers (`Using.resource`); shared `runGitLines` helper; survive a missing git binary
-- [x] Report the cause when the binary index fails to load (`ClassName: message`) instead of a generic message
-- [x] Remove all 34 `return` statements from `src/` (boundary/break or restructuring); zero-`return` policy now holds codebase-wide
-- [x] New tests: cache corruption/truncation/version-mismatch recovery, refs timeout reporting, flag-parser regressions, member-origin extraction
-
-### Mill build migration
-
-- [x] Add Mill build definition for Scalex CLI and tests
-- [x] Move local/native build commands from scala-cli to Mill
-- [x] Update docs and scripts to describe Mill workflows
+- [x] `scalex mcp` subcommand — starts a persistent MCP server over STDIO (JSON-RPC 2.0)
+- [x] One MCP tool per command (`scalex_search`, `scalex_def`, `scalex_refs`, etc.) — 29 tools total
+- [x] In-memory index caching between tool calls — avoids re-loading index on each invocation
+- [x] Minimal built-in JSON parser (`McpJson` enum) — no new dependencies
+- [x] Configuration examples for Cursor, Windsurf, Cline in README
 
 ### Community feedback: output budgets & package-scoped refs (#252)
 

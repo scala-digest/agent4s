@@ -2,83 +2,8 @@
 
 ## [Unreleased]
 
-## [1.41.0] — 2026-09-13
-
-### Documentation
-- Rebuild the shared agent skill around query selection and evidence interpretation, with detailed syntax in one command reference. Clarify cache freshness after unstaged edits, textual reference and test-mention limits, batch tokenization, and when ordinary text search is appropriate.
-
 ### Added
-- PR checks cache dependency downloads and Mill build outputs while continuing to execute all validation commands.
-- PR checks run the test suite, benchmark compilation, and shared skill validation.
-- Codex CLI and desktop plugin packaging and repository marketplace, sharing the existing skill and binary bootstrap with Claude Code.
-
-### Fixed
-- `diff` compares declaration source text, including bodies, instead of line numbers: leading line shifts no longer mark unchanged declarations modified, and same-line-count body edits are detected. Preserve overloaded methods and same-named declarations in different owners. File filters apply before analysis; display limits no longer silently cap the number of examined files.
-- Native Java parsing retains the five AST fields inspected by JavaParser's validator. Classes with fields, local variables, arrays, intersection casts, and multi-catch types now parse like the JVM build. Existing indexes rebuild once to discard previously cached parse failures.
-- Test repositories configure their own Git identity and disable commit signing, so the suite runs on clean CI machines without developer Git settings.
-- Output budgets preserve complete JSON documents, apply to symbol summaries, and count Unicode characters correctly. Oversized JSON returns truncation metadata instead of a broken prefix.
-- CLI usage errors exit 2 and Git failures exit 1, with structured JSON errors when requested. Invalid Git refs no longer look like successful empty diffs.
-- Workspace indexes are fully initialized snapshots, preventing stale lookup tables after refresh.
-- `graph --parse` no longer drops sibling nested boxes: a box containing two or more boxes side by side wrongly promoted all but one of them to top level (and leaked their border characters into the parent's text). Box containment is now resolved by linking each box to its smallest container
-- `grep --in <owner>`: an unreadable file no longer discards matches already found in other files defining the same owner; the file is skipped instead
-
-### Changed
-- Simple isolated definition/import/reference lookups avoid building an entire name map; qualified resolution, composite commands, and batch mode retain reusable indexes. Cache loading resolves each file path once; reference rendering reuses file confidence and sort keys, and classification compiles patterns once per query. Index contents and result ordering are unchanged.
-- `--timings` reports exclusive nested phases, command execution, rendering, and elapsed request totals, including failed requests. Native heap tuning remains opt-in and is documented with its memory tradeoff.
-- Upgrade Scala to 3.9.0, Mill to 1.1.9, Scalameta to 4.17.4, Guava to 33.7.1-jre, MUnit to 1.3.6, and Scalafmt to 3.11.5. JavaParser 3.28.2 and test-only ujson 4.4.3 are current. GraalVM moves to 24.0.2 on all platforms, the newest release that supports macOS Intel. CI actions use updated, verified commit pins.
-- Application code now uses explicit `scalex` packages for indexing, extraction, output, and commands. Command metadata has one registry, options are grouped by purpose, and contributor instructions share one development guide.
-- `ast-pattern --json` now emits the same symbol object as `search`/`def` (gains `parents`, `typeParamParents`, and `annotations` fields) — one JSON shape for all symbol-returning commands
-- When both `-w` and `--workspace` are passed, the last occurrence now wins (previously `--workspace` always took precedence regardless of position)
-- `refs --top` now uses the same timed-out suffix as every other command (`(timed out — partial results)` instead of `(timed out — results may be incomplete)`)
-- `overview --architecture/--concise/--focus-package` reads imports recorded in the index instead of re-parsing every source file — on the scala3 corpus (17.7k files) this drops `overview --concise` from ~3.7s to ~0.75s (4.9×)
-- Historical native-image comparison before the toolchain upgrade: bloom-loading commands (`refs`/`imports`/`coverage`) run 7–15% slower in this build (~50–90ms on the scala3 corpus) while most other commands got 10–18% faster. The slowdown is entirely in the untouched index-deserialization phase and does not reproduce on the JVM (parity there) — it traces to GraalVM GC pacing/codegen shifts from the binary growing, not to any changed code path. Pinning the heap (`-Xms1g`) recovers most of it on both old and new binaries
-- Line-number gutters are now uniformly left-aligned: `refs -C` previously right-aligned line numbers while `body` left-aligned them
-- `refs`/`imports` now report `timedOut: true` when the deadline expires mid-file on the last scanned file (previously the partial result could be reported as complete)
-
-### Fixed
-- `grep --json` no longer emits invalid JSON when the auto-corrected pattern contains backslashes or quotes (e.g. `grep 'foo\|\d+' --json` produced an unescaped `"corrected":"foo|\d+"` hint)
-- `graph` no longer corrupts its edge-list args when a value-taking global flag (e.g. `--limit 5`) is passed — the flag strip-list is now derived from the flag registry instead of a hardcoded subset
-- `--expand` without a numeric value no longer consumes a following flag (e.g. `explain Foo --expand --no-doc` now applies `--no-doc`; bare `--expand` still means depth 1)
-- A positional argument that equals a flag's value elsewhere in the arg list (e.g. `scalex def --kind class class`) is no longer dropped — flag parsing is now a single position-aware pass
-- Corrupted or truncated index caches now report the failure cause on stderr (`index load failed (EOFException: …) — rebuilding`) instead of a generic message
-- Git subprocess readers are closed after use; a missing `git` binary now produces a clear error instead of a stack trace
-
-### Changed (internal)
-- JSON emission helpers (`jStr`/`jArr`/`jStrArr`/`jOpt`, `jsonMemberFields`, `jsonBodyFields`) replace ~50 hand-rolled `jsonEscape` interpolation fragments across all renderers — every string value is escaped exactly once by construction
-- One `DeadlineScan` chassis (deadline, result queue, unreadable-file counter, parallel per-file/per-line scanning) behind `grepFiles`, `findReferences`, and `findImports`
-- Shared `pathPredicate` for the `--no-tests`/`--path`/`--exclude-path` filter chain (previously copied in `filterSymbols`, `filterRefs`, `grepFiles`, `astPatternSearch`, `tests`)
-- One `nameMatchTier` classifier (exact/prefix/contains/reverse-contains/camelCase) behind symbol search, file search, and owner-scoped suggestions
-- `requireArg` helper replaces the 21 identical `args.headOption match … UsageError` command preambles
-- `buildMultiIndex` builds the inverted lazy indexes (`parentIndex`, `typeParamParentIndex`, `annotationIndex`); `distinctSymbols` uses `distinctBy`
-- Java extraction shares `javaParams`/`javaMethodSig`/`javaFieldInfo`/`javaLine` between file-symbol and member extraction (signatures can no longer drift apart), and Java body extraction uses one `addBody` slice helper
-- `findTypeDefs` names the repeated "definitions that are types" lookup; `SymbolKind.label`, `Confidence.label/explanation`, `refCategoryOrder`, `wildcardImportPkg`, `pkgSuffix`, `numberedLine`, `renderShown` (the `... and N more` footer), and a single recursive hierarchy printer replace their scattered copies
-- `renderSourceBlocks` reads each file at most once for context windows (previously twice per block in text mode); context slicing shares one `contextWindow` helper and `readSourceLines`
-- `coverage` computes its not-found hint in the command instead of inside the renderer; `bench.scala` is `return`-free
-- New tests: a structural JSON validator sweeps every `--json` command output; locks on search ranking, overview package-dependency edges, Java signature consistency, truncation footers, and context-line rendering
-- New `clibase` Mill module — app-agnostic CLI plumbing usable as a base for other CLIs: declarative flag registry (each flag declared once: spellings, value shape, default, help text), single-pass lenient parser (unknown `--long` flags ignored), typed `Flags` bag, generated `Options:` help, `Timings`, `OutputBudget` (line-boundary truncation), `BatchLoop` (stdin REPL)
-- The self-contained `asciiGraph` package moved from `src/graph/` to its own `graph` Mill module
-- Deleted `ParsedFlags` (45 parallel fields), the hand-written parser match, and the hand-written options help — flag spellings, defaults, and help text now live in one declaration per flag in `src/flags.scala`, and `CommandContext` is built in a single place (`flagsToContext`)
-- Removed the dead `parseWorkspaceAndArg` helper
-- `findReferences`, `findImports`, and `categorizeReferences` return `timedOut` as part of their result instead of mutating shared state on `WorkspaceIndex` — concurrent queries can no longer clobber each other's timeout flag
-- Member extraction (`members`, `grep --each-method`) now shares one traversal; body extraction and the Scala 3 → 2.13 parse fallback are deduplicated
-- Removed all remaining `return` statements from production code (34) per the codebase-wide policy
-- Deduplicated command-layer logic into shared helpers: dotted-name splitting (`simpleNameOf`, `splitOwnerMember`), member decoration (`decorateMembers`), body-size gating (`bodyWithinLimit`), package resolve-or-not-found (`withResolvedPackage`), stdlib package detection/ranking (`isStdlibPackage`, `stdlibPkgRank`), timed-out suffix, and kind counting (`countByKind`); `grep` shares one owner-lookup and span-scan path, and `overview` computes its parent ranking once for both most-extended and hub types
-- Simplicity pass (−443 lines net, no behavior change beyond the items above). Benchmarked on the scala3 corpus (17.7k files): index size byte-identical, cold index −12%, warm index and all index-backed queries at parity. The bloom-loading commands (`refs`/`imports`) show another ~10% native-binary slowdown isolated to the untouched index-deserialization phase with exact JVM parity (cache-load 237 ms on both HEAD and this change) — the same GraalVM GC-pacing/codegen artifact documented above, this time from the binary shrinking 42→40 MB:
-  - graph module: deleted the unused library surface (`EdgeType`/`connections`, `CrossingCalculator`, `OccupancyGrid`, `GraphUtils.topologicalSort`/`hasCycle`, six unused `Graph` methods, `QuadTree.collisions`, assorted dead members) and collapsed single-implementation abstractions: the `Lens` machinery (replaced by a plain child-node list), `VertexRenderingStrategy` (with its `asInstanceOf` casts), and the `LayoutPrefs`/`RendererPrefs` trait tower (now one `LayoutPrefs` case class); `Direction` is a Scala 3 enum; the renderer's twelve per-character defs are three indexed glyph strings, and the swapped `lineHorizontalChar`/`lineVerticalChar` names are fixed
-  - `graph --parse` text collection no longer rebuilds the all-edge-labels point set once per scanned character (was O(edges × area) per box cell)
-  - deleted parallel types: `AstPatternMatch` (≡ `SymbolInfo`), dead `CategorizedRef`, `OverviewData.hubTypes` (same data as `mostExtended`), write-only `SymbolList.total`/`StringList.total`, write-only `TestCaseInfo.suiteName`/`suiteFile`; `HierarchyNode`'s four parallel `Option` fields are now one `Option[SymbolInfo]`; the `symbols --summary` "already printed" sentinel is an explicit `CmdResult.Silent`
-  - folded duplicated logic: `index()` cached/uncached parse branches are one path, `search`/`searchFiles` share one tier bucketer, `findImplementations`/`fixPosixRegex`/`cmdGrep` lost their copy-pasted branches, `grep --in` reads each file once per owner definition (was once per body block), categorized refs resolve confidence once per ref (was once per confidence level), and the overview/index-stats/entrypoints renderers share their repeated print blocks and JSON fragments (`jKindCounts`, `InheritedGroup` alias)
-
-## [1.40.0] — 2026-06-01
-
-### Changed
-- Migrated the project build from scala-cli directives to Mill, including CLI/test/benchmark modules and native image packaging.
-- Bumped Scalex to 1.40.0, Scalameta to 4.17.0, JavaParser to 3.28.2, and munit to 1.3.1.
-
-## [1.39.0] — 2026-04-23
-
-### Changed
-- Bumped Scala to 3.8.3, Scalameta to 4.16.1, Guava to 33.6.0-jre, and munit to 1.3.0
+- `mcp` — MCP (Model Context Protocol) server mode over STDIO; exposes all 29 scalex commands as MCP tools (`scalex_search`, `scalex_def`, `scalex_refs`, etc.); enables integration with Cursor, Windsurf, Cline, and any MCP-compatible coding tool; in-memory index caching between tool calls for faster response times
 
 ## [1.38.0] — 2026-03-22
 

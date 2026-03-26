@@ -625,6 +625,10 @@ echo -e "def UserService\ngrep processPayment\nimpl UserService" | scalex batch 
 
 Loads the index through the normal OID cache and reports counts, parse failures, and cache statistics. This does not force a rebuild; unstaged edits may leave cached data stale. See SKILL.md.
 
+### `scalex mcp` — MCP server mode
+
+Starts a persistent MCP (Model Context Protocol) server over STDIO. Exposes all scalex commands as MCP tools (`scalex_search`, `scalex_def`, `scalex_refs`, etc.) for integration with Cursor, Windsurf, Cline, and any MCP-compatible tool. The index is cached in memory between tool calls for faster response times.
+
 ---
 
 ## Options
