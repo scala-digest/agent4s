@@ -25,45 +25,94 @@ jobs:
             artifact: scalex-macos-x64
           - os: ubuntu-24.04
             artifact: scalex-linux-x64
+          - os: windows-2022
+            artifact: scalex-windows-x64
 
     runs-on: ${{ matrix.os }}
 
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
-      - uses: graalvm/setup-graalvm@0426e2e191540e8514dff98dc52a5f5146a2a276 # v1
+      - uses: graalvm/setup-graalvm@03e8abf916fd0e281b2efe7b2da3378bb0a1d085 # v1
         with:
-          java-version: '24.0.2'
+          java-version: '21'
           distribution: 'graalvm'
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build native image
+      - uses: VirtusLab/scala-cli-setup@59e308800210b0414d2d7190068c80021e1b3e5d # v1
+        with:
+          power: true
+          jvm: graalvm-java21
+
+      - name: Configure Visual Studio (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@a102174a2b586eec2ea151a69e6fd14404a8ce7c # v1.13.0
+
+      - name: Build native image (Unix)
+        if: runner.os != 'Windows'
         run: ./build-native.sh ${{ matrix.artifact }}
 
-      - name: Test binary
+      - name: Build native image (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
         run: |
-          bash scripts/check-native.sh ./${{ matrix.artifact }}
+          scala-cli package --native-image \
+            src/ \
+            -o "${{ matrix.artifact }}.exe" \
+            --force \
+            -- --no-fallback \
+            --initialize-at-run-time=com.google.common.hash.Striped64,com.google.common.hash.LongAdder,com.google.common.hash.BloomFilter,com.google.common.hash.BloomFilterStrategies \
+            --exclude-config ".*jline.*" ".*"
+
+      - name: Test binary (Unix)
+        if: runner.os != 'Windows'
+        run: |
           ./${{ matrix.artifact }} help
           ./${{ matrix.artifact }} index .
           ./${{ matrix.artifact }} search . Scalex
           ./${{ matrix.artifact }} def . SymbolKind
           ./${{ matrix.artifact }} symbols . src/model.scala
 
-      - name: Generate checksum
+      - name: Test binary (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          ./${{ matrix.artifact }}.exe help
+          ./${{ matrix.artifact }}.exe index .
+          ./${{ matrix.artifact }}.exe search . Scalex
+          ./${{ matrix.artifact }}.exe def . SymbolKind
+          ./${{ matrix.artifact }}.exe symbols . src/model.scala
+
+      - name: Generate checksum (Unix)
+        if: runner.os != 'Windows'
         run: shasum -a 256 ${{ matrix.artifact }} > ${{ matrix.artifact }}.sha256
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - name: Generate checksum (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: sha256sum ${{ matrix.artifact }}.exe > ${{ matrix.artifact }}.exe.sha256
+
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+        if: runner.os != 'Windows'
         with:
           name: ${{ matrix.artifact }}
           path: |
             ${{ matrix.artifact }}
             ${{ matrix.artifact }}.sha256
 
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+        if: runner.os == 'Windows'
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            ${{ matrix.artifact }}.exe
+            ${{ matrix.artifact }}.exe.sha256
+
   release:
     needs: build
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
@@ -75,18 +124,19 @@ jobs:
       - name: Generate combined checksums
         run: |
           cd artifacts
-          shasum -a 256 */scalex-macos-arm64 */scalex-macos-x64 */scalex-linux-x64 | sed 's|[^/]*/||' > ../checksums.txt
+          shasum -a 256 */scalex-macos-arm64 */scalex-macos-x64 */scalex-linux-x64 */scalex-windows-x64.exe | sed 's|[^/]*/||' > ../checksums.txt
           cd ..
           echo "Generated checksums.txt:"
           cat checksums.txt
 
       - name: Attest build provenance
-        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45 # v2
         with:
           subject-path: |
             artifacts/*/scalex-macos-arm64
             artifacts/*/scalex-macos-x64
             artifacts/*/scalex-linux-x64
+            artifacts/*/scalex-windows-x64.exe
 
       - name: Extract changelog
         id: changelog
@@ -98,7 +148,7 @@ jobs:
           echo "EOF" >> "$GITHUB_OUTPUT"
 
       - name: Create release
-        uses: softprops/action-gh-release@e598afbe1493e6b1bafb1f389cabb956eab91231 # v3.0.3
+        uses: softprops/action-gh-release@153bb8e04406b158c6c84fc1615b65b24149a1fe # v2
         with:
           files: |
             artifacts/*/scalex-*
