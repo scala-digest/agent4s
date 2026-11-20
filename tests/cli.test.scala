@@ -1,8 +1,16 @@
-import munit.FunSuite
-import java.nio.file.{Files, Path}
-import scala.jdk.CollectionConverters.*
+package scalex
 
-class CliSuite extends ScalexTestBase:
+import java.io.ByteArrayOutputStream
+import java.util.regex.Pattern
+import java.io.PrintStream
+
+import scalex.index.*
+import scalex.extraction.*
+import scalex.output.*
+
+import java.nio.file.Files
+
+class CliSuite extends ScalexTestBase {
 
   // ── JSON output helpers ─────────────────────────────────────────────
 
@@ -21,8 +29,17 @@ class CliSuite extends ScalexTestBase:
   }
 
   test("jsonSymbol produces valid JSON structure") {
-    val s = SymbolInfo("Foo", SymbolKind.Class, workspace.resolve("Foo.scala"), 10, "com.example",
-      List("Bar"), Nil, "class Foo extends Bar", List("deprecated"))
+    val s = SymbolInfo(
+      "Foo",
+      SymbolKind.Class,
+      workspace.resolve("Foo.scala"),
+      10,
+      "com.example",
+      List("Bar"),
+      Nil,
+      "class Foo extends Bar",
+      List("deprecated")
+    )
     val json = jsonSymbol(s, workspace)
     assert(json.startsWith("{"), s"Should start with {: $json")
     assert(json.endsWith("}"), s"Should end with }: $json")
@@ -58,9 +75,8 @@ class CliSuite extends ScalexTestBase:
   // ── refs -C N context lines ────────────────────────────────────────
 
   test("formatRefWithContext shows context lines") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
-    val refs = idx.findReferences("UserService")
+    val idx = WorkspaceIndex.load(workspace)
+    val refs = idx.findReferences("UserService").results
     val ref = refs.find(r => workspace.relativize(r.file).toString.contains("UserService.scala")).get
     val output = formatRefWithContext(ref, workspace, 1)
     // Should have the header line and context lines
@@ -92,30 +108,31 @@ class CliSuite extends ScalexTestBase:
   // ── Grep ──────────────────────────────────────────────────────────
 
   test("grepFiles finds matching lines") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val (results, timedOut) = idx.grepFiles("def findUser", noTests = false, pathFilter = None)
     assert(!timedOut)
     assert(results.nonEmpty, "Should find 'def findUser'")
-    assert(results.exists(_.contextLine.contains("def findUser")),
-      s"Should contain matching line: ${results.map(_.contextLine)}")
+    assert(
+      results.exists(_.contextLine.contains("def findUser")),
+      s"Should contain matching line: ${results.map(_.contextLine)}"
+    )
   }
 
   test("grepFiles supports regex") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val (results, _) = idx.grepFiles("def\\s+create\\w+", noTests = false, pathFilter = None)
     assert(results.nonEmpty, "Should match regex pattern")
-    assert(results.exists(_.contextLine.contains("createUser")),
-      s"Should find createUser: ${results.map(_.contextLine)}")
+    assert(
+      results.exists(_.contextLine.contains("createUser")),
+      s"Should find createUser: ${results.map(_.contextLine)}"
+    )
   }
 
   test("grepFiles returns empty for invalid regex") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     var results: List[Reference] = Nil
     var timedOut = false
-    Console.withErr(new java.io.ByteArrayOutputStream()) {
+    Console.withErr(ByteArrayOutputStream()) {
       val (r, t) = idx.grepFiles("[invalid", noTests = false, pathFilter = None)
       results = r
       timedOut = t
@@ -125,8 +142,7 @@ class CliSuite extends ScalexTestBase:
   }
 
   test("grepFiles respects --no-tests filter") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val (all, _) = idx.grepFiles("UserService", noTests = false, pathFilter = None)
     val (filtered, _) = idx.grepFiles("UserService", noTests = true, pathFilter = None)
     val allFiles = all.map(r => workspace.relativize(r.file).toString).distinct
@@ -136,8 +152,7 @@ class CliSuite extends ScalexTestBase:
   }
 
   test("grepFiles respects --path filter") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val (results, _) = idx.grepFiles("UserService", noTests = false, pathFilter = Some("src/main"))
     results.foreach { r =>
       val rel = workspace.relativize(r.file).toString
@@ -146,8 +161,7 @@ class CliSuite extends ScalexTestBase:
   }
 
   test("grepFiles results are sorted by file and line") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val (results, _) = idx.grepFiles("User", noTests = false, pathFilter = None)
     val pairs = results.map(r => (workspace.relativize(r.file).toString, r.line))
     assertEquals(pairs, pairs.sorted)
@@ -186,7 +200,7 @@ class CliSuite extends ScalexTestBase:
     assertEquals(fixed, "foo\\(|bar")
     assert(changed)
     // Verify the result actually compiles and matches both alternatives
-    val regex = java.util.regex.Pattern.compile(fixed)
+    val regex = Pattern.compile(fixed)
     assert(regex.matcher("foo(").find())
     assert(regex.matcher("bar").find())
   }
@@ -203,7 +217,7 @@ class CliSuite extends ScalexTestBase:
     // Fallback should quote the converted form so the literal search matches
     // "foo|[unclosed" (with real pipe), not "foo\|[unclosed" (with backslash).
     val (fixed, changed) = fixPosixRegex("foo\\|[unclosed")
-    assertEquals(fixed, java.util.regex.Pattern.quote("foo|[unclosed"))
+    assertEquals(fixed, Pattern.quote("foo|[unclosed"))
     assert(changed)
   }
 
@@ -211,22 +225,22 @@ class CliSuite extends ScalexTestBase:
     // "foo(" is invalid Java regex (unclosed group) and POSIX fix doesn't help,
     // so it should be auto-quoted as a literal string via Pattern.quote
     val (fixed, changed) = fixPosixRegex("foo(")
-    assertEquals(fixed, java.util.regex.Pattern.quote("foo("))
+    assertEquals(fixed, Pattern.quote("foo("))
     assert(changed)
   }
 
   test("fixPosixRegex auto-quotes various invalid regex metacharacters") {
     // Unclosed character class
     val (f1, c1) = fixPosixRegex("Foo[Bar")
-    assertEquals(f1, java.util.regex.Pattern.quote("Foo[Bar"))
+    assertEquals(f1, Pattern.quote("Foo[Bar"))
     assert(c1)
     // Unclosed quantifier
     val (f2, c2) = fixPosixRegex("a{3")
-    assertEquals(f2, java.util.regex.Pattern.quote("a{3"))
+    assertEquals(f2, Pattern.quote("a{3"))
     assert(c2)
     // Multiple unbalanced parens
     val (f3, c3) = fixPosixRegex("func(arg1, arg2")
-    assertEquals(f3, java.util.regex.Pattern.quote("func(arg1, arg2"))
+    assertEquals(f3, Pattern.quote("func(arg1, arg2"))
     assert(c3)
   }
 
@@ -239,8 +253,7 @@ class CliSuite extends ScalexTestBase:
   // ── --kind on def ──────────────────────────────────────────────────
 
   test("def --kind filters by symbol kind") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val all = idx.findDefinition("UserService")
     assert(all.exists(_.kind == SymbolKind.Trait), "Should have trait")
     assert(all.exists(_.kind == SymbolKind.Object), "Should have object")
@@ -256,8 +269,7 @@ class CliSuite extends ScalexTestBase:
   // ── --no-tests filtering ───────────────────────────────────────────
 
   test("--no-tests excludes test file results from def") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     // UserServiceSpec is in test dir
     val all = idx.findDefinition("UserServiceSpec")
     assert(all.nonEmpty, "Should find UserServiceSpec")
@@ -266,9 +278,8 @@ class CliSuite extends ScalexTestBase:
   }
 
   test("--no-tests excludes test file results from refs") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
-    val all = idx.findReferences("UserService")
+    val idx = WorkspaceIndex.load(workspace)
+    val all = idx.findReferences("UserService").results
     val allFiles = all.map(r => workspace.relativize(r.file).toString).distinct
     assert(allFiles.exists(_.contains("UserServiceSpec")), "Should have test file in unfiltered")
     val filtered = all.filter(r => !isTestFile(r.file, workspace))
@@ -284,15 +295,16 @@ class CliSuite extends ScalexTestBase:
   }
 
   test("--path filters def results to subtree") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val all = idx.findDefinition("UserService")
     assert(all.nonEmpty)
     val filtered = all.filter(s => matchesPath(s.file, "src/main", workspace))
     assert(filtered.nonEmpty, "Should have results in src/main")
     filtered.foreach { s =>
-      assert(workspace.relativize(s.file).toString.startsWith("src/main"),
-        s"All results should be in src/main: ${workspace.relativize(s.file)}")
+      assert(
+        workspace.relativize(s.file).toString.startsWith("src/main"),
+        s"All results should be in src/main: ${workspace.relativize(s.file)}"
+      )
     }
   }
 
@@ -305,18 +317,18 @@ class CliSuite extends ScalexTestBase:
   // ── Smarter def ranking ────────────────────────────────────────────
 
   test("def ranking puts class/trait/object before def/val") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     // findUser is both a def. UserService has trait, object.
     // Create a scenario: search for something with mixed kinds
     val results = idx.findDefinition("UserService")
     // Sort using the ranking logic
     val ranked = results.sortBy { s =>
-      val kindRank = s.kind match
+      val kindRank = s.kind match {
         case SymbolKind.Class | SymbolKind.Trait | SymbolKind.Object | SymbolKind.Enum => 0
-        case SymbolKind.Type | SymbolKind.Given => 1
-        case _ => 2
-      val testRank = if isTestFile(s.file, workspace) then 1 else 0
+        case SymbolKind.Type | SymbolKind.Given                                        => 1
+        case _                                                                         => 2
+      }
+      val testRank = if (isTestFile(s.file, workspace)) 1 else 0
       val pathLen = workspace.relativize(s.file).toString.length
       (kindRank, testRank, pathLen)
     }
@@ -329,22 +341,22 @@ class CliSuite extends ScalexTestBase:
   }
 
   test("def ranking puts non-test before test files") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     // UserServiceSpec is in test dir, UserService is in main
     val all = idx.findDefinition("UserService") ++ idx.findDefinition("UserServiceSpec")
     val ranked = all.sortBy { s =>
-      val kindRank = s.kind match
+      val kindRank = s.kind match {
         case SymbolKind.Class | SymbolKind.Trait | SymbolKind.Object | SymbolKind.Enum => 0
-        case SymbolKind.Type | SymbolKind.Given => 1
-        case _ => 2
-      val testRank = if isTestFile(s.file, workspace) then 1 else 0
+        case SymbolKind.Type | SymbolKind.Given                                        => 1
+        case _                                                                         => 2
+      }
+      val testRank = if (isTestFile(s.file, workspace)) 1 else 0
       val pathLen = workspace.relativize(s.file).toString.length
       (kindRank, testRank, pathLen)
     }
     // Non-test files should come first
     val firstTestIdx = ranked.indexWhere(s => isTestFile(s.file, workspace))
-    if firstTestIdx >= 0 then
+    if (firstTestIdx >= 0)
       ranked.take(firstTestIdx).foreach { s =>
         assert(!isTestFile(s.file, workspace), "Non-test should come before test")
       }
@@ -353,11 +365,14 @@ class CliSuite extends ScalexTestBase:
   // ── condensed not-found in batch mode ──────────────────────────────────
 
   test("not-found hint in batch mode is condensed") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
-    val out = new java.io.ByteArrayOutputStream()
+    val idx = WorkspaceIndex.load(workspace)
+    val out = ByteArrayOutputStream()
     Console.withOut(out) {
-      runCommand("def", List("NonExistent"), CommandContext(idx = idx, workspace = workspace, batchMode = true))
+      runCommand(
+        "def",
+        List("NonExistent"),
+        CommandContext(idx = idx, workspace = workspace, output = OutputOptions(batchMode = true))
+      )
     }
     val output = out.toString
     assert(output.contains("not found"), s"Should contain not found: $output")
@@ -367,11 +382,14 @@ class CliSuite extends ScalexTestBase:
   }
 
   test("not-found hint in normal mode has full hints") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
-    val out = new java.io.ByteArrayOutputStream()
+    val idx = WorkspaceIndex.load(workspace)
+    val out = ByteArrayOutputStream()
     Console.withOut(out) {
-      runCommand("def", List("NonExistent"), CommandContext(idx = idx, workspace = workspace, batchMode = false))
+      runCommand(
+        "def",
+        List("NonExistent"),
+        CommandContext(idx = idx, workspace = workspace, output = OutputOptions(batchMode = false))
+      )
     }
     val output = out.toString
     assert(output.contains("Hint:"), s"Normal mode should contain Hint: $output")
@@ -381,11 +399,14 @@ class CliSuite extends ScalexTestBase:
   // ── search --exact / --prefix ──────────────────────────────────────────
 
   test("search --exact returns only exact name matches") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
-    val out = new java.io.ByteArrayOutputStream()
+    val idx = WorkspaceIndex.load(workspace)
+    val out = ByteArrayOutputStream()
     Console.withOut(out) {
-      runCommand("search", List("User"), CommandContext(idx = idx, workspace = workspace, searchMode = Some("exact")))
+      runCommand(
+        "search",
+        List("User"),
+        CommandContext(idx = idx, workspace = workspace, search = SearchOptions(searchMode = Some("exact")))
+      )
     }
     val output = out.toString
     assert(output.contains("User"), s"Should find exact match 'User': $output")
@@ -393,11 +414,14 @@ class CliSuite extends ScalexTestBase:
   }
 
   test("search --prefix returns exact + prefix matches only") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
-    val out = new java.io.ByteArrayOutputStream()
+    val idx = WorkspaceIndex.load(workspace)
+    val out = ByteArrayOutputStream()
     Console.withOut(out) {
-      runCommand("search", List("User"), CommandContext(idx = idx, workspace = workspace, searchMode = Some("prefix")))
+      runCommand(
+        "search",
+        List("User"),
+        CommandContext(idx = idx, workspace = workspace, search = SearchOptions(searchMode = Some("prefix")))
+      )
     }
     val output = out.toString
     assert(output.contains("User"), s"Should find 'User': $output")
@@ -405,9 +429,8 @@ class CliSuite extends ScalexTestBase:
   }
 
   test("search without mode returns all match types") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
-    val out = new java.io.ByteArrayOutputStream()
+    val idx = WorkspaceIndex.load(workspace)
+    val out = ByteArrayOutputStream()
     Console.withOut(out) {
       runCommand("search", List("User"), CommandContext(idx = idx, workspace = workspace))
     }
@@ -441,11 +464,19 @@ class CliSuite extends ScalexTestBase:
   // ── search --definitions-only ────────────────────────────────────────
 
   test("search --definitions-only returns only type definitions") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
-    val out = new java.io.ByteArrayOutputStream()
+    val idx = WorkspaceIndex.load(workspace)
+    val out = ByteArrayOutputStream()
     Console.withOut(out) {
-      runCommand("search", List("User"), CommandContext(idx = idx, workspace = workspace, limit = 50, definitionsOnly = true))
+      runCommand(
+        "search",
+        List("User"),
+        CommandContext(
+          idx = idx,
+          workspace = workspace,
+          output = OutputOptions(limit = 50),
+          search = SearchOptions(definitionsOnly = true)
+        )
+      )
     }
     val output = out.toString
     // Should contain class User, trait UserService, class UserServiceLive, object UserService, etc.
@@ -456,12 +487,20 @@ class CliSuite extends ScalexTestBase:
   }
 
   test("search --definitions-only excludes defs and vals") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     // Search for "findUser" which is a def — should return empty with --definitions-only
-    val out = new java.io.ByteArrayOutputStream()
+    val out = ByteArrayOutputStream()
     Console.withOut(out) {
-      runCommand("search", List("findUser"), CommandContext(idx = idx, workspace = workspace, limit = 50, definitionsOnly = true))
+      runCommand(
+        "search",
+        List("findUser"),
+        CommandContext(
+          idx = idx,
+          workspace = workspace,
+          output = OutputOptions(limit = 50),
+          search = SearchOptions(definitionsOnly = true)
+        )
+      )
     }
     val output = out.toString
     assert(output.contains("Found 0"), s"Should find 0 definitions for 'findUser': $output")
@@ -470,11 +509,19 @@ class CliSuite extends ScalexTestBase:
   // ── refs --category ──────────────────────────────────────────────────
 
   test("refs --category ExtendedBy returns only that category") {
-    val idx = WorkspaceIndex(workspace, needBlooms = true)
-    idx.index()
-    val out = new java.io.ByteArrayOutputStream()
+    val idx = WorkspaceIndex.load(workspace, needBlooms = true)
+    val out = ByteArrayOutputStream()
     Console.withOut(out) {
-      runCommand("refs", List("UserService"), CommandContext(idx = idx, workspace = workspace, limit = 50, categoryFilter = Some("ExtendedBy")))
+      runCommand(
+        "refs",
+        List("UserService"),
+        CommandContext(
+          idx = idx,
+          workspace = workspace,
+          output = OutputOptions(limit = 50),
+          references = ReferencesOptions(categoryFilter = Some("ExtendedBy"))
+        )
+      )
     }
     val output = out.toString
     assert(output.contains("ExtendedBy"), s"Should contain ExtendedBy section: $output")
@@ -484,15 +531,23 @@ class CliSuite extends ScalexTestBase:
   }
 
   test("refs --category with invalid name returns empty results") {
-    val idx = WorkspaceIndex(workspace, needBlooms = true)
-    idx.index()
-    val out = new java.io.ByteArrayOutputStream()
-    val errStream = new java.io.ByteArrayOutputStream()
+    val idx = WorkspaceIndex.load(workspace, needBlooms = true)
+    val out = ByteArrayOutputStream()
+    val errStream = ByteArrayOutputStream()
     val oldErr = System.err
-    System.setErr(new java.io.PrintStream(errStream))
+    System.setErr(PrintStream(errStream))
     try {
       Console.withOut(out) {
-        runCommand("refs", List("UserService"), CommandContext(idx = idx, workspace = workspace, limit = 50, categoryFilter = Some("InvalidCat")))
+        runCommand(
+          "refs",
+          List("UserService"),
+          CommandContext(
+            idx = idx,
+            workspace = workspace,
+            output = OutputOptions(limit = 50),
+            references = ReferencesOptions(categoryFilter = Some("InvalidCat"))
+          )
+        )
       }
     } finally {
       System.setErr(oldErr)
@@ -505,8 +560,16 @@ class CliSuite extends ScalexTestBase:
   // ── Phase 7: Verbose formatting ───────────────────────────────────────
 
   test("formatSymbolVerbose includes signature") {
-    val s = SymbolInfo("Foo", SymbolKind.Trait, workspace.resolve("Foo.scala"), 1, "com.example",
-      List("Bar", "Baz"), Nil, "trait Foo extends Bar with Baz")
+    val s = SymbolInfo(
+      "Foo",
+      SymbolKind.Trait,
+      workspace.resolve("Foo.scala"),
+      1,
+      "com.example",
+      List("Bar", "Baz"),
+      Nil,
+      "trait Foo extends Bar with Baz"
+    )
     val result = formatSymbolVerbose(s, workspace)
     assert(result.contains("trait Foo extends Bar with Baz"), s"Verbose: $result")
   }
@@ -520,11 +583,10 @@ class CliSuite extends ScalexTestBase:
   // ── overview ─────────────────────────────────────────────────────────
 
   test("overview shows file count and symbol count") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
-    val out = new java.io.ByteArrayOutputStream()
+    val idx = WorkspaceIndex.load(workspace)
+    val out = ByteArrayOutputStream()
     Console.withOut(out) {
-      runCommand("overview", Nil, CommandContext(idx = idx, workspace = workspace, limit = 10))
+      runCommand("overview", Nil, CommandContext(idx = idx, workspace = workspace, output = OutputOptions(limit = 10)))
     }
     val output = out.toString
     assert(output.contains("Project overview"), s"Should have header: $output")
@@ -533,11 +595,10 @@ class CliSuite extends ScalexTestBase:
   }
 
   test("overview shows symbols by kind") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
-    val out = new java.io.ByteArrayOutputStream()
+    val idx = WorkspaceIndex.load(workspace)
+    val out = ByteArrayOutputStream()
     Console.withOut(out) {
-      runCommand("overview", Nil, CommandContext(idx = idx, workspace = workspace, limit = 10))
+      runCommand("overview", Nil, CommandContext(idx = idx, workspace = workspace, output = OutputOptions(limit = 10)))
     }
     val output = out.toString
     assert(output.contains("Symbols by kind"), s"Should show kind breakdown: $output")
@@ -546,11 +607,10 @@ class CliSuite extends ScalexTestBase:
   }
 
   test("overview shows top packages") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
-    val out = new java.io.ByteArrayOutputStream()
+    val idx = WorkspaceIndex.load(workspace)
+    val out = ByteArrayOutputStream()
     Console.withOut(out) {
-      runCommand("overview", Nil, CommandContext(idx = idx, workspace = workspace, limit = 10))
+      runCommand("overview", Nil, CommandContext(idx = idx, workspace = workspace, output = OutputOptions(limit = 10)))
     }
     val output = out.toString
     assert(output.contains("Top packages"), s"Should show top packages: $output")
@@ -558,23 +618,28 @@ class CliSuite extends ScalexTestBase:
   }
 
   test("overview shows most extended") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
-    val out = new java.io.ByteArrayOutputStream()
+    val idx = WorkspaceIndex.load(workspace)
+    val out = ByteArrayOutputStream()
     Console.withOut(out) {
-      runCommand("overview", Nil, CommandContext(idx = idx, workspace = workspace, limit = 10))
+      runCommand("overview", Nil, CommandContext(idx = idx, workspace = workspace, output = OutputOptions(limit = 10)))
     }
     val output = out.toString
     assert(output.contains("Most extended"), s"Should show most extended: $output")
-    assert(output.contains("UserService") || output.contains("Database") || output.contains("Processor"), s"Should list a known trait with PascalCase: $output")
+    assert(
+      output.contains("UserService") || output.contains("Database") || output.contains("Processor"),
+      s"Should list a known trait with PascalCase: $output"
+    )
   }
 
   test("overview JSON output") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
-    val out = new java.io.ByteArrayOutputStream()
+    val idx = WorkspaceIndex.load(workspace)
+    val out = ByteArrayOutputStream()
     Console.withOut(out) {
-      runCommand("overview", Nil, CommandContext(idx = idx, workspace = workspace, limit = 10, jsonOutput = true))
+      runCommand(
+        "overview",
+        Nil,
+        CommandContext(idx = idx, workspace = workspace, output = OutputOptions(limit = 10, jsonOutput = true))
+      )
     }
     val output = out.toString.trim
     assert(output.startsWith("{"), s"JSON should start with brace: $output")
@@ -586,40 +651,65 @@ class CliSuite extends ScalexTestBase:
   // ── overview --architecture ────────────────────────────────────────────
 
   test("overview --architecture computes package dependencies without crash") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
-    val out = new java.io.ByteArrayOutputStream()
+    val idx = WorkspaceIndex.load(workspace)
+    val out = ByteArrayOutputStream()
     Console.withOut(out) {
-      runCommand("overview", Nil, CommandContext(idx = idx, workspace = workspace, limit = 10, architecture = true))
+      runCommand(
+        "overview",
+        Nil,
+        CommandContext(
+          idx = idx,
+          workspace = workspace,
+          output = OutputOptions(limit = 10),
+          overview = OverviewOptions(architecture = true)
+        )
+      )
     }
     val output = out.toString
     assert(output.contains("Package dependencies"), s"Should show package dependencies section: $output")
     assert(output.contains("Hub types"), s"Should show hub types section: $output")
-    assert(!output.contains("Most extended"), s"Architecture mode should not show 'Most extended' (hub types supersedes it): $output")
+    assert(
+      !output.contains("Most extended"),
+      s"Architecture mode should not show 'Most extended' (hub types supersedes it): $output"
+    )
   }
 
   test("overview --architecture JSON includes packageDependencies and hubTypes") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
-    val out = new java.io.ByteArrayOutputStream()
+    val idx = WorkspaceIndex.load(workspace)
+    val out = ByteArrayOutputStream()
     Console.withOut(out) {
-      runCommand("overview", Nil, CommandContext(idx = idx, workspace = workspace, limit = 10, jsonOutput = true, architecture = true))
+      runCommand(
+        "overview",
+        Nil,
+        CommandContext(
+          idx = idx,
+          workspace = workspace,
+          output = OutputOptions(limit = 10, jsonOutput = true),
+          overview = OverviewOptions(architecture = true)
+        )
+      )
     }
     val output = out.toString.trim
     assert(output.startsWith("{"), s"JSON should start with brace: $output")
     assert(output.contains("\"packageDependencies\""), s"JSON should contain packageDependencies: $output")
     assert(output.contains("\"hubTypes\""), s"JSON should contain hubTypes: $output")
-    assert(!output.contains("\"mostExtended\""), s"Architecture JSON should not contain mostExtended (hub types supersedes it): $output")
+    assert(
+      !output.contains("\"mostExtended\""),
+      s"Architecture JSON should not contain mostExtended (hub types supersedes it): $output"
+    )
   }
 
   // ── members JSON output ──────────────────────────────────────────────
 
   test("members --json output") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
-    val out = new java.io.ByteArrayOutputStream()
+    val idx = WorkspaceIndex.load(workspace)
+    val out = ByteArrayOutputStream()
     Console.withOut(out) {
-      runCommand("members", List("PaymentServiceLive"), CommandContext(idx = idx, workspace = workspace, limit = 50, jsonOutput = true))
+      runCommand(
+        "members",
+        List("PaymentServiceLive"),
+        CommandContext(idx = idx, workspace = workspace, output = OutputOptions(limit = 50, jsonOutput = true))
+      )
     }
     val output = out.toString.trim
     assert(output.startsWith("["), s"JSON should start with bracket: $output")
@@ -630,11 +720,14 @@ class CliSuite extends ScalexTestBase:
   // ── doc JSON output ──────────────────────────────────────────────────
 
   test("doc --json output") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
-    val out = new java.io.ByteArrayOutputStream()
+    val idx = WorkspaceIndex.load(workspace)
+    val out = ByteArrayOutputStream()
     Console.withOut(out) {
-      runCommand("doc", List("PaymentService"), CommandContext(idx = idx, workspace = workspace, limit = 50, jsonOutput = true))
+      runCommand(
+        "doc",
+        List("PaymentService"),
+        CommandContext(idx = idx, workspace = workspace, output = OutputOptions(limit = 50, jsonOutput = true))
+      )
     }
     val output = out.toString.trim
     assert(output.startsWith("["), s"JSON should start with bracket: $output")
@@ -645,11 +738,14 @@ class CliSuite extends ScalexTestBase:
   // ── members command output ──────────────────────────────────────────────
 
   test("members command output format") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
-    val out = new java.io.ByteArrayOutputStream()
+    val idx = WorkspaceIndex.load(workspace)
+    val out = ByteArrayOutputStream()
     Console.withOut(out) {
-      runCommand("members", List("PaymentService"), CommandContext(idx = idx, workspace = workspace, limit = 50))
+      runCommand(
+        "members",
+        List("PaymentService"),
+        CommandContext(idx = idx, workspace = workspace, output = OutputOptions(limit = 50))
+      )
     }
     val output = out.toString
     assert(output.contains("Members of trait PaymentService"), s"Should have header: $output")
@@ -657,11 +753,14 @@ class CliSuite extends ScalexTestBase:
   }
 
   test("members --verbose shows full signatures") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
-    val out = new java.io.ByteArrayOutputStream()
+    val idx = WorkspaceIndex.load(workspace)
+    val out = ByteArrayOutputStream()
     Console.withOut(out) {
-      runCommand("members", List("PaymentServiceLive"), CommandContext(idx = idx, workspace = workspace, limit = 50, verbose = true))
+      runCommand(
+        "members",
+        List("PaymentServiceLive"),
+        CommandContext(idx = idx, workspace = workspace, output = OutputOptions(limit = 50, verbose = true))
+      )
     }
     val output = out.toString
     assert(output.contains("def processPayment"), s"Verbose should show signature: $output")
@@ -669,11 +768,14 @@ class CliSuite extends ScalexTestBase:
   }
 
   test("members returns empty for non-type symbols") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
-    val out = new java.io.ByteArrayOutputStream()
+    val idx = WorkspaceIndex.load(workspace)
+    val out = ByteArrayOutputStream()
     Console.withOut(out) {
-      runCommand("members", List("findUser"), CommandContext(idx = idx, workspace = workspace, limit = 50))
+      runCommand(
+        "members",
+        List("findUser"),
+        CommandContext(idx = idx, workspace = workspace, output = OutputOptions(limit = 50))
+      )
     }
     val output = out.toString
     assert(output.contains("No class/trait/object/enum"), s"Should report no type found: $output")
@@ -682,10 +784,13 @@ class CliSuite extends ScalexTestBase:
   // ── #184: companion object members not duplicated in members output ──
 
   test("members: class companion shows only companion-specific members") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val output = captureOut {
-      runCommand("members", List("Pipeline"), CommandContext(idx = idx, workspace = workspace, limit = 50, verbose = true))
+      runCommand(
+        "members",
+        List("Pipeline"),
+        CommandContext(idx = idx, workspace = workspace, output = OutputOptions(limit = 50, verbose = true))
+      )
     }
     // Pipeline class has execute, validate; companion has create
     val classSection = output.split("Companion")(0)
@@ -701,10 +806,13 @@ class CliSuite extends ScalexTestBase:
   }
 
   test("members: trait companion shows only companion-specific members") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val output = captureOut {
-      runCommand("members", List("Database"), CommandContext(idx = idx, workspace = workspace, limit = 50, verbose = true))
+      runCommand(
+        "members",
+        List("Database"),
+        CommandContext(idx = idx, workspace = workspace, output = OutputOptions(limit = 50, verbose = true))
+      )
     }
     // Database trait has query, insert; companion object has live
     val sections = output.split("Companion")
@@ -721,10 +829,13 @@ class CliSuite extends ScalexTestBase:
   }
 
   test("members --json: companion members not duplicated within each section") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val output = captureOut {
-      runCommand("members", List("Pipeline"), CommandContext(idx = idx, workspace = workspace, limit = 50, jsonOutput = true))
+      runCommand(
+        "members",
+        List("Pipeline"),
+        CommandContext(idx = idx, workspace = workspace, output = OutputOptions(limit = 50, jsonOutput = true))
+      )
     }
     // Both class and object Pipeline are returned, each showing the other as companion.
     // Each member appears twice total (own in one view, companion in the other) — but
@@ -736,16 +847,23 @@ class CliSuite extends ScalexTestBase:
     assertEquals(executeCount, 2, s"execute should appear twice (own + companion): $output")
     assertEquals(validateCount, 2, s"validate should appear twice (own + companion): $output")
     // Class section should NOT list create as own (ownerKind "class")
-    assert(!output.contains(""""name":"create","kind":"def","line":24,"signature":"def create(steps: String*): Pipeline","file":"src/main/scala/com/example/Pipeline.scala","owner":"Pipeline","ownerKind":"class""""),
-      s"create should not be owned by class: $output")
+    assert(
+      !output.contains(
+        """"name":"create","kind":"def","line":24,"signature":"def create(steps: String*): Pipeline","file":"src/main/scala/com/example/Pipeline.scala","owner":"Pipeline","ownerKind":"class""""
+      ),
+      s"create should not be owned by class: $output"
+    )
   }
 
   test("members: object view shows companion class members separately") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     // When querying the object specifically, its own members should not include class members
     val output = captureOut {
-      runCommand("members", List("UserService"), CommandContext(idx = idx, workspace = workspace, limit = 50, verbose = true))
+      runCommand(
+        "members",
+        List("UserService"),
+        CommandContext(idx = idx, workspace = workspace, output = OutputOptions(limit = 50, verbose = true))
+      )
     }
     // UserService trait: findUser, createUser; UserService object: default
     // The object section should list "default" as own, not findUser/createUser
@@ -759,13 +877,20 @@ class CliSuite extends ScalexTestBase:
   }
 
   test("members: qualified name should return same members as simple name") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val simpleOutput = captureOut {
-      runCommand("members", List("Pipeline"), CommandContext(idx = idx, workspace = workspace, limit = 50, verbose = true))
+      runCommand(
+        "members",
+        List("Pipeline"),
+        CommandContext(idx = idx, workspace = workspace, output = OutputOptions(limit = 50, verbose = true))
+      )
     }
     val qualifiedOutput = captureOut {
-      runCommand("members", List("com.example.Pipeline"), CommandContext(idx = idx, workspace = workspace, limit = 50, verbose = true))
+      runCommand(
+        "members",
+        List("com.example.Pipeline"),
+        CommandContext(idx = idx, workspace = workspace, output = OutputOptions(limit = 50, verbose = true))
+      )
     }
     // Both should find the same members — qualified name should not break extractMembers
     assert(simpleOutput.contains("execute"), s"Simple name should find execute: $simpleOutput")
@@ -777,22 +902,28 @@ class CliSuite extends ScalexTestBase:
   // ── doc command output ──────────────────────────────────────────────
 
   test("doc command output") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
-    val out = new java.io.ByteArrayOutputStream()
+    val idx = WorkspaceIndex.load(workspace)
+    val out = ByteArrayOutputStream()
     Console.withOut(out) {
-      runCommand("doc", List("PaymentService"), CommandContext(idx = idx, workspace = workspace, limit = 50))
+      runCommand(
+        "doc",
+        List("PaymentService"),
+        CommandContext(idx = idx, workspace = workspace, output = OutputOptions(limit = 50))
+      )
     }
     val output = out.toString
     assert(output.contains("processing payments"), s"Should show scaladoc: $output")
   }
 
   test("doc for symbol without scaladoc") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
-    val out = new java.io.ByteArrayOutputStream()
+    val idx = WorkspaceIndex.load(workspace)
+    val out = ByteArrayOutputStream()
     Console.withOut(out) {
-      runCommand("doc", List("User"), CommandContext(idx = idx, workspace = workspace, limit = 50))
+      runCommand(
+        "doc",
+        List("User"),
+        CommandContext(idx = idx, workspace = workspace, output = OutputOptions(limit = 50))
+      )
     }
     val output = out.toString
     assert(output.contains("(no scaladoc)"), s"Should report no scaladoc: $output")
@@ -801,11 +932,19 @@ class CliSuite extends ScalexTestBase:
   // ── #93: overview --no-tests ────────────────────────────────────────────
 
   test("overview --no-tests excludes test files from counts") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
-    val out = new java.io.ByteArrayOutputStream()
+    val idx = WorkspaceIndex.load(workspace)
+    val out = ByteArrayOutputStream()
     Console.withOut(out) {
-      runCommand("overview", Nil, CommandContext(idx = idx, workspace = workspace, limit = 10, noTests = true))
+      runCommand(
+        "overview",
+        Nil,
+        CommandContext(
+          idx = idx,
+          workspace = workspace,
+          filters = FiltersOptions(noTests = true),
+          output = OutputOptions(limit = 10)
+        )
+      )
     }
     val output = out.toString
     // Test files (UserServiceSpec, UserServiceTest) should be excluded
@@ -816,9 +955,8 @@ class CliSuite extends ScalexTestBase:
   // ── #94: fuzzy suggestions on not-found ───────────────────────────────
 
   test("def not-found shows suggestions") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
-    val out = new java.io.ByteArrayOutputStream()
+    val idx = WorkspaceIndex.load(workspace)
+    val out = ByteArrayOutputStream()
     Console.withOut(out) {
       runCommand("def", List("UserServic"), CommandContext(idx = idx, workspace = workspace))
     }
@@ -828,20 +966,22 @@ class CliSuite extends ScalexTestBase:
   }
 
   test("def not-found batch mode shows condensed suggestions") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
-    val out = new java.io.ByteArrayOutputStream()
+    val idx = WorkspaceIndex.load(workspace)
+    val out = ByteArrayOutputStream()
     Console.withOut(out) {
-      runCommand("def", List("UserServic"), CommandContext(idx = idx, workspace = workspace, batchMode = true))
+      runCommand(
+        "def",
+        List("UserServic"),
+        CommandContext(idx = idx, workspace = workspace, output = OutputOptions(batchMode = true))
+      )
     }
     val output = out.toString
     assert(output.contains("Did you mean"), s"Should show suggestions in batch: $output")
   }
 
   test("def not-found suggests reverse-suffix matches (#156)") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
-    val out = new java.io.ByteArrayOutputStream()
+    val idx = WorkspaceIndex.load(workspace)
+    val out = ByteArrayOutputStream()
     Console.withOut(out) {
       runCommand("def", List("MyUserService"), CommandContext(idx = idx, workspace = workspace))
     }
@@ -851,12 +991,15 @@ class CliSuite extends ScalexTestBase:
   }
 
   test("search not-found shows suggestions (#156)") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     // Use --mode exact so "MyUserService" finds no exact match, but suggestions are generated
-    val out = new java.io.ByteArrayOutputStream()
+    val out = ByteArrayOutputStream()
     Console.withOut(out) {
-      runCommand("search", List("MyUserService"), CommandContext(idx = idx, workspace = workspace, searchMode = Some("exact")))
+      runCommand(
+        "search",
+        List("MyUserService"),
+        CommandContext(idx = idx, workspace = workspace, search = SearchOptions(searchMode = Some("exact")))
+      )
     }
     val output = out.toString
     assert(output.contains("Found 0"), s"Should find 0: $output")
@@ -867,11 +1010,14 @@ class CliSuite extends ScalexTestBase:
   // ── #95: package command ──────────────────────────────────────────────
 
   test("package command lists symbols grouped by kind") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
-    val out = new java.io.ByteArrayOutputStream()
+    val idx = WorkspaceIndex.load(workspace)
+    val out = ByteArrayOutputStream()
     Console.withOut(out) {
-      runCommand("package", List("com.example"), CommandContext(idx = idx, workspace = workspace, limit = 50))
+      runCommand(
+        "package",
+        List("com.example"),
+        CommandContext(idx = idx, workspace = workspace, output = OutputOptions(limit = 50))
+      )
     }
     val output = out.toString
     assert(output.contains("com.example"), s"Should show package name: $output")
@@ -880,22 +1026,28 @@ class CliSuite extends ScalexTestBase:
   }
 
   test("package command fuzzy matches suffix") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
-    val out = new java.io.ByteArrayOutputStream()
+    val idx = WorkspaceIndex.load(workspace)
+    val out = ByteArrayOutputStream()
     Console.withOut(out) {
-      runCommand("package", List("example"), CommandContext(idx = idx, workspace = workspace, limit = 50))
+      runCommand(
+        "package",
+        List("example"),
+        CommandContext(idx = idx, workspace = workspace, output = OutputOptions(limit = 50))
+      )
     }
     val output = out.toString
     assert(output.contains("com.example"), s"Should resolve to com.example: $output")
   }
 
   test("package command JSON output") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
-    val out = new java.io.ByteArrayOutputStream()
+    val idx = WorkspaceIndex.load(workspace)
+    val out = ByteArrayOutputStream()
     Console.withOut(out) {
-      runCommand("package", List("com.example"), CommandContext(idx = idx, workspace = workspace, limit = 50, jsonOutput = true))
+      runCommand(
+        "package",
+        List("com.example"),
+        CommandContext(idx = idx, workspace = workspace, output = OutputOptions(limit = 50, jsonOutput = true))
+      )
     }
     val output = out.toString.trim
     assert(output.startsWith("{"), s"Should be JSON object: $output")
@@ -904,11 +1056,19 @@ class CliSuite extends ScalexTestBase:
   }
 
   test("package command with --no-tests") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
-    val out = new java.io.ByteArrayOutputStream()
+    val idx = WorkspaceIndex.load(workspace)
+    val out = ByteArrayOutputStream()
     Console.withOut(out) {
-      runCommand("package", List("com.example"), CommandContext(idx = idx, workspace = workspace, limit = 50, noTests = true))
+      runCommand(
+        "package",
+        List("com.example"),
+        CommandContext(
+          idx = idx,
+          workspace = workspace,
+          filters = FiltersOptions(noTests = true),
+          output = OutputOptions(limit = 50)
+        )
+      )
     }
     val output = out.toString
     assert(!output.contains("UserServiceSpec"), s"Should exclude test symbols: $output")
@@ -916,9 +1076,8 @@ class CliSuite extends ScalexTestBase:
   }
 
   test("package command not found suggests packages via segment matching") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
-    val out = new java.io.ByteArrayOutputStream()
+    val idx = WorkspaceIndex.load(workspace)
+    val out = ByteArrayOutputStream()
     Console.withOut(out) {
       // "com.exmple" doesn't substring-match any package, but segments "com" and "exmple"
       // should match packages containing "com" (com.example, com.other, com.client, etc.)
@@ -933,11 +1092,19 @@ class CliSuite extends ScalexTestBase:
   // ── #96: overview --focus-package ─────────────────────────────────────
 
   test("overview --focus-package scopes dependency graph") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
-    val out = new java.io.ByteArrayOutputStream()
+    val idx = WorkspaceIndex.load(workspace)
+    val out = ByteArrayOutputStream()
     Console.withOut(out) {
-      runCommand("overview", Nil, CommandContext(idx = idx, workspace = workspace, limit = 10, focusPackage = Some("com.example")))
+      runCommand(
+        "overview",
+        Nil,
+        CommandContext(
+          idx = idx,
+          workspace = workspace,
+          output = OutputOptions(limit = 10),
+          overview = OverviewOptions(focusPackage = Some("com.example"))
+        )
+      )
     }
     val output = out.toString
     assert(output.contains("Package focus: com.example"), s"Should show focus header: $output")
@@ -946,11 +1113,19 @@ class CliSuite extends ScalexTestBase:
   }
 
   test("overview --focus-package JSON includes focusPackage") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
-    val out = new java.io.ByteArrayOutputStream()
+    val idx = WorkspaceIndex.load(workspace)
+    val out = ByteArrayOutputStream()
     Console.withOut(out) {
-      runCommand("overview", Nil, CommandContext(idx = idx, workspace = workspace, limit = 10, jsonOutput = true, focusPackage = Some("com.example")))
+      runCommand(
+        "overview",
+        Nil,
+        CommandContext(
+          idx = idx,
+          workspace = workspace,
+          output = OutputOptions(limit = 10, jsonOutput = true),
+          overview = OverviewOptions(focusPackage = Some("com.example"))
+        )
+      )
     }
     val output = out.toString.trim
     assert(output.contains("\"focusPackage\":\"com.example\""), s"Should contain focusPackage in JSON: $output")
@@ -959,11 +1134,14 @@ class CliSuite extends ScalexTestBase:
   // ── tests --json ────────────────────────────────────────────────────────
 
   test("tests command --json output") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
-    val out = new java.io.ByteArrayOutputStream()
+    val idx = WorkspaceIndex.load(workspace)
+    val out = ByteArrayOutputStream()
     Console.withOut(out) {
-      runCommand("tests", Nil, CommandContext(idx = idx, workspace = workspace, jsonOutput = true))
+      runCommand(
+        "tests",
+        Nil,
+        CommandContext(idx = idx, workspace = workspace, output = OutputOptions(jsonOutput = true))
+      )
     }
     val output = out.toString.trim
     assert(output.startsWith("["), s"JSON should start with [: $output")
@@ -972,10 +1150,13 @@ class CliSuite extends ScalexTestBase:
   }
 
   test("tests --count reports dynamic sites") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val (stdout, stderr) = captureOutErr {
-      runCommand("tests", Nil, CommandContext(idx = idx, workspace = workspace, countOnly = true))
+      runCommand(
+        "tests",
+        Nil,
+        CommandContext(idx = idx, workspace = workspace, output = OutputOptions(countOnly = true))
+      )
     }
     assert(stdout.contains("(literal names only)"), s"Should show literal qualifier: $stdout")
     assert(stdout.contains("across"), s"Should use 'across' format: $stdout")
@@ -983,10 +1164,13 @@ class CliSuite extends ScalexTestBase:
   }
 
   test("tests --count --json includes dynamicSites") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val output = captureOut {
-      runCommand("tests", Nil, CommandContext(idx = idx, workspace = workspace, countOnly = true, jsonOutput = true))
+      runCommand(
+        "tests",
+        Nil,
+        CommandContext(idx = idx, workspace = workspace, output = OutputOptions(countOnly = true, jsonOutput = true))
+      )
     }
     assert(output.contains("\"dynamicSites\":"), s"JSON should include dynamicSites: $output")
     assert(output.contains("\"suites\":"), s"JSON should include suites: $output")
@@ -996,73 +1180,83 @@ class CliSuite extends ScalexTestBase:
   // ── explain companion merging ────────────────────────────────────────
 
   test("explain shows companion object") {
-    val idx = WorkspaceIndex(workspace, needBlooms = true)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace, needBlooms = true)
     val output = captureOut {
-      runCommand("explain", List("UserService"), CommandContext(idx = idx, workspace = workspace, implLimit = 10))
+      runCommand(
+        "explain",
+        List("UserService"),
+        CommandContext(idx = idx, workspace = workspace, members = MembersOptions(implLimit = 10))
+      )
     }
-    assert(output.contains("Companion object UserService"),
-      s"Should show companion object: $output")
-    assert(output.contains("default"),
-      s"Companion should show val default: $output")
+    assert(output.contains("Companion object UserService"), s"Should show companion object: $output")
+    assert(output.contains("default"), s"Companion should show val default: $output")
   }
 
   test("explain for non-type has no companion") {
-    val idx = WorkspaceIndex(workspace, needBlooms = true)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace, needBlooms = true)
     val output = captureOut {
       runCommand("explain", List("findUser"), CommandContext(idx = idx, workspace = workspace))
     }
-    assert(!output.contains("Companion"),
-      s"Non-type should not show companion: $output")
+    assert(!output.contains("Companion"), s"Non-type should not show companion: $output")
   }
 
   test("explain --json includes companion field") {
-    val idx = WorkspaceIndex(workspace, needBlooms = true)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace, needBlooms = true)
     val output = captureOut {
-      runCommand("explain", List("UserService"), CommandContext(idx = idx, workspace = workspace, jsonOutput = true, implLimit = 10))
+      runCommand(
+        "explain",
+        List("UserService"),
+        CommandContext(
+          idx = idx,
+          workspace = workspace,
+          output = OutputOptions(jsonOutput = true),
+          members = MembersOptions(implLimit = 10)
+        )
+      )
     }
-    assert(output.contains("\"companion\""),
-      s"JSON should include companion field: $output")
+    assert(output.contains("\"companion\""), s"JSON should include companion field: $output")
   }
 
   // ── explain --expand N ────────────────────────────────────────────────
 
   test("explain --expand 1 shows expanded implementations") {
-    val idx = WorkspaceIndex(workspace, needBlooms = true)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace, needBlooms = true)
     val output = captureOut {
-      runCommand("explain", List("UserService"), CommandContext(idx = idx, workspace = workspace, implLimit = 10, expandDepth = 1))
+      runCommand(
+        "explain",
+        List("UserService"),
+        CommandContext(idx = idx, workspace = workspace, members = MembersOptions(implLimit = 10, expandDepth = 1))
+      )
     }
-    assert(output.contains("Expanded implementations"),
-      s"Should show expanded impls: $output")
-    assert(output.contains("UserServiceLive"),
-      s"Should show UserServiceLive in expanded: $output")
+    assert(output.contains("Expanded implementations"), s"Should show expanded impls: $output")
+    assert(output.contains("UserServiceLive"), s"Should show UserServiceLive in expanded: $output")
   }
 
   test("explain without --expand shows no expanded section") {
-    val idx = WorkspaceIndex(workspace, needBlooms = true)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace, needBlooms = true)
     val output = captureOut {
-      runCommand("explain", List("UserService"), CommandContext(idx = idx, workspace = workspace, implLimit = 10))
+      runCommand(
+        "explain",
+        List("UserService"),
+        CommandContext(idx = idx, workspace = workspace, members = MembersOptions(implLimit = 10))
+      )
     }
-    assert(!output.contains("Expanded implementations"),
-      s"Should NOT show expanded impls without flag: $output")
+    assert(!output.contains("Expanded implementations"), s"Should NOT show expanded impls without flag: $output")
   }
 
   // ── explain with package-qualified name ────────────────────────────────
 
   test("explain with qualified name works") {
-    val idx = WorkspaceIndex(workspace, needBlooms = true)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace, needBlooms = true)
     val output = captureOut {
-      runCommand("explain", List("com.example.UserService"), CommandContext(idx = idx, workspace = workspace, implLimit = 10))
+      runCommand(
+        "explain",
+        List("com.example.UserService"),
+        CommandContext(idx = idx, workspace = workspace, members = MembersOptions(implLimit = 10))
+      )
     }
-    assert(output.contains("Explanation of"),
-      s"Should show explanation: $output")
-    assert(output.contains("UserService"),
-      s"Should contain UserService: $output")
+    assert(output.contains("Explanation of"), s"Should show explanation: $output")
+    assert(output.contains("UserService"), s"Should contain UserService: $output")
   }
 
   // ── #132-135: isTestFile root-level tests/ detection ────────────────────
@@ -1071,8 +1265,7 @@ class CliSuite extends ScalexTestBase:
     val testsFile = workspace.resolve("tests/pos/Foo.scala")
     Files.createDirectories(testsFile.getParent)
     Files.writeString(testsFile, "class Foo")
-    assert(isTestFile(testsFile, workspace),
-      "File under root-level tests/ should be detected as test file")
+    assert(isTestFile(testsFile, workspace), "File under root-level tests/ should be detected as test file")
     // cleanup
     Files.delete(testsFile)
   }
@@ -1081,32 +1274,40 @@ class CliSuite extends ScalexTestBase:
     val testFile = workspace.resolve("test/Foo.scala")
     Files.createDirectories(testFile.getParent)
     Files.writeString(testFile, "class Foo")
-    assert(isTestFile(testFile, workspace),
-      "File under root-level test/ should be detected as test file")
+    assert(isTestFile(testFile, workspace), "File under root-level test/ should be detected as test file")
     Files.delete(testFile)
   }
 
   // ── #132-135: explain disambiguation hint ────────────────────────────────
 
   test("explain does not report otherMatches for companion (same name)") {
-    val idx = WorkspaceIndex(workspace, needBlooms = true)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace, needBlooms = true)
     val output = captureOut {
       // UserService has trait + companion object — same name, should NOT count as "other match"
-      runCommand("explain", List("UserService"),
-        CommandContext(idx = idx, workspace = workspace, jsonOutput = true, implLimit = 10))
+      runCommand(
+        "explain",
+        List("UserService"),
+        CommandContext(
+          idx = idx,
+          workspace = workspace,
+          output = OutputOptions(jsonOutput = true),
+          members = MembersOptions(implLimit = 10)
+        )
+      )
     }
-    assert(!output.contains("\"otherMatches\""),
-      s"Companion with same name should not produce otherMatches: $output")
+    assert(!output.contains("\"otherMatches\""), s"Companion with same name should not produce otherMatches: $output")
   }
 
   // ── #132-135: explain --shallow ──────────────────────────────────────────
 
   test("explain --shallow skips implementations and imports") {
-    val idx = WorkspaceIndex(workspace, needBlooms = true)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace, needBlooms = true)
     val output = captureOut {
-      runCommand("explain", List("UserService"), CommandContext(idx = idx, workspace = workspace, shallow = true))
+      runCommand(
+        "explain",
+        List("UserService"),
+        CommandContext(idx = idx, workspace = workspace, members = MembersOptions(shallow = true))
+      )
     }
     assert(output.contains("Explanation of"), s"Should show explanation: $output")
     assert(!output.contains("Implementations"), s"Shallow should not show implementations: $output")
@@ -1116,27 +1317,37 @@ class CliSuite extends ScalexTestBase:
   // ── #132-135: explain package fallback ────────────────────────────────────
 
   test("explain falls back to summary when symbol matches a package") {
-    val idx = WorkspaceIndex(workspace, needBlooms = true)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace, needBlooms = true)
     val (stdout, stderr) = captureOutErr {
       runCommand("explain", List("com.example"), CommandContext(idx = idx, workspace = workspace))
     }
     // Should show package summary instead of not-found
-    assert(stdout.contains("com.example") && !stdout.contains("No definition"),
-      s"Should fall back to package summary: $stdout")
+    assert(
+      stdout.contains("com.example") && !stdout.contains("No definition"),
+      s"Should fall back to package summary: $stdout"
+    )
     // Should warn user about the fallback on stderr
-    assert(stderr.contains("no type") && stderr.contains("package summary"),
-      s"Should warn about package fallback on stderr: $stderr")
+    assert(
+      stderr.contains("no type") && stderr.contains("package summary"),
+      s"Should warn about package fallback on stderr: $stderr"
+    )
   }
 
   // ── #132-135: explain import refs respect --path filter ────────────────────
 
   test("explain import refs are filtered by --path") {
-    val idx = WorkspaceIndex(workspace, needBlooms = true)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace, needBlooms = true)
     val output = captureOut {
-      runCommand("explain", List("UserService"),
-        CommandContext(idx = idx, workspace = workspace, pathFilter = Some("src/main/scala/com/example/"), implLimit = 10))
+      runCommand(
+        "explain",
+        List("UserService"),
+        CommandContext(
+          idx = idx,
+          workspace = workspace,
+          filters = FiltersOptions(pathFilter = Some("src/main/scala/com/example/")),
+          members = MembersOptions(implLimit = 10)
+        )
+      )
     }
     assert(output.contains("Explanation of"), s"Should show explanation: $output")
     // Import refs from client/ packages should not appear when --path restricts to com/example/
@@ -1146,11 +1357,13 @@ class CliSuite extends ScalexTestBase:
   // ── #164: explain --brief ────────────────────────────────────────────────
 
   test("explain --brief text: shows definition and top 3 members only") {
-    val idx = WorkspaceIndex(workspace, needBlooms = true)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace, needBlooms = true)
     val output = captureOut {
-      runCommand("explain", List("PaymentService"),
-        CommandContext(idx = idx, workspace = workspace, brief = true))
+      runCommand(
+        "explain",
+        List("PaymentService"),
+        CommandContext(idx = idx, workspace = workspace, members = MembersOptions(brief = true))
+      )
     }
     assert(output.contains("Explanation of"), s"Should show explanation: $output")
     assert(!output.contains("Scaladoc"), s"Brief should not show Scaladoc: $output")
@@ -1161,39 +1374,53 @@ class CliSuite extends ScalexTestBase:
   }
 
   test("explain --brief text: caps members at 3") {
-    val idx = WorkspaceIndex(workspace, needBlooms = true)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace, needBlooms = true)
     // PaymentServiceLive has 5 members (2 defs + 1 val + 1 var + 1 type) — brief caps at 3
     val output = captureOut {
-      runCommand("explain", List("PaymentServiceLive"),
-        CommandContext(idx = idx, workspace = workspace, brief = true))
+      runCommand(
+        "explain",
+        List("PaymentServiceLive"),
+        CommandContext(idx = idx, workspace = workspace, members = MembersOptions(brief = true))
+      )
     }
     assert(output.contains("Members (top 3)"), s"Should cap at 3 members: $output")
     // com.example.Registry has 4 members — brief caps at 3
     val regOutput = captureOut {
-      runCommand("explain", List("com.example.Registry"),
-        CommandContext(idx = idx, workspace = workspace, brief = true))
+      runCommand(
+        "explain",
+        List("com.example.Registry"),
+        CommandContext(idx = idx, workspace = workspace, members = MembersOptions(brief = true))
+      )
     }
     assert(regOutput.contains("Members (top 3)"), s"Should cap Registry at 3 members: $regOutput")
   }
 
   test("explain --brief text: non-type symbol has no members") {
-    val idx = WorkspaceIndex(workspace, needBlooms = true)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace, needBlooms = true)
     val output = captureOut {
-      runCommand("explain", List("userOrdering"),
-        CommandContext(idx = idx, workspace = workspace, brief = true))
+      runCommand(
+        "explain",
+        List("userOrdering"),
+        CommandContext(idx = idx, workspace = workspace, members = MembersOptions(brief = true))
+      )
     }
     assert(output.contains("Explanation of"), s"Should show explanation: $output")
     assert(!output.contains("Members"), s"Non-type should not show members in brief: $output")
   }
 
   test("explain --brief JSON: omits doc, impls, companion") {
-    val idx = WorkspaceIndex(workspace, needBlooms = true)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace, needBlooms = true)
     val output = captureOut {
-      runCommand("explain", List("UserService"),
-        CommandContext(idx = idx, workspace = workspace, brief = true, jsonOutput = true))
+      runCommand(
+        "explain",
+        List("UserService"),
+        CommandContext(
+          idx = idx,
+          workspace = workspace,
+          output = OutputOptions(jsonOutput = true),
+          members = MembersOptions(brief = true)
+        )
+      )
     }
     assert(output.contains("\"definition\""), s"Should have definition: $output")
     assert(output.contains("\"doc\":null"), s"Brief should have null doc: $output")
@@ -1203,11 +1430,18 @@ class CliSuite extends ScalexTestBase:
   }
 
   test("explain --brief JSON: members capped at 3") {
-    val idx = WorkspaceIndex(workspace, needBlooms = true)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace, needBlooms = true)
     val output = captureOut {
-      runCommand("explain", List("PaymentServiceLive"),
-        CommandContext(idx = idx, workspace = workspace, brief = true, jsonOutput = true))
+      runCommand(
+        "explain",
+        List("PaymentServiceLive"),
+        CommandContext(
+          idx = idx,
+          workspace = workspace,
+          output = OutputOptions(jsonOutput = true),
+          members = MembersOptions(brief = true)
+        )
+      )
     }
     // Count member entries in JSON — PaymentServiceLive has 5 members, brief caps at 3
     val memberCount = """"name":""".r.findAllIn(output).size - 1 // subtract 1 for definition.name
@@ -1217,81 +1451,107 @@ class CliSuite extends ScalexTestBase:
   // ── #164: disambiguation copy-paste commands ────────────────────────────
 
   test("explain disambiguation: companion (same name+pkg) produces no otherMatches") {
-    val idx = WorkspaceIndex(workspace, needBlooms = true)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace, needBlooms = true)
     // Database has trait + companion object in com.example — same (name, package)
     val output = captureOut {
-      runCommand("explain", List("Database"),
-        CommandContext(idx = idx, workspace = workspace, jsonOutput = true, implLimit = 10))
+      runCommand(
+        "explain",
+        List("Database"),
+        CommandContext(
+          idx = idx,
+          workspace = workspace,
+          output = OutputOptions(jsonOutput = true),
+          members = MembersOptions(implLimit = 10)
+        )
+      )
     }
-    assert(!output.contains("\"otherMatches\""),
-      s"Companion with same name+pkg should not produce otherMatches: $output")
+    assert(
+      !output.contains("\"otherMatches\""),
+      s"Companion with same name+pkg should not produce otherMatches: $output"
+    )
   }
 
   test("explain disambiguation: cross-package match produces string array in JSON") {
-    val idx = WorkspaceIndex(workspace, needBlooms = true)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace, needBlooms = true)
     // Registry exists in com.example and com.other — should produce otherMatches
     val output = captureOut {
-      runCommand("explain", List("Registry"),
-        CommandContext(idx = idx, workspace = workspace, jsonOutput = true, implLimit = 10))
+      runCommand(
+        "explain",
+        List("Registry"),
+        CommandContext(
+          idx = idx,
+          workspace = workspace,
+          output = OutputOptions(jsonOutput = true),
+          members = MembersOptions(implLimit = 10)
+        )
+      )
     }
     assert(output.contains("\"otherMatches\""), s"Cross-package should produce otherMatches: $output")
     assert(output.contains("\"otherMatches\":["), s"otherMatches should be an array: $output")
     // Should contain package-qualified name of the non-chosen match
-    assert(output.contains("com.other.Registry") || output.contains("com.example.Registry"),
-      s"otherMatches should contain package-qualified names: $output")
+    assert(
+      output.contains("com.other.Registry") || output.contains("com.example.Registry"),
+      s"otherMatches should contain package-qualified names: $output"
+    )
   }
 
   test("explain disambiguation: stderr prints copy-paste commands") {
-    val idx = WorkspaceIndex(workspace, needBlooms = true)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace, needBlooms = true)
     val (stdout, stderr) = captureOutErr {
-      runCommand("explain", List("Registry"),
-        CommandContext(idx = idx, workspace = workspace, implLimit = 10))
+      runCommand(
+        "explain",
+        List("Registry"),
+        CommandContext(idx = idx, workspace = workspace, members = MembersOptions(implLimit = 10))
+      )
     }
     assert(stderr.contains("other match"), s"Should show disambiguation hint on stderr: $stderr")
     assert(stderr.contains("scalex explain"), s"Should print copy-paste command: $stderr")
     // The command should be package-qualified
-    assert(stderr.contains("com.other.Registry") || stderr.contains("com.example.Registry"),
-      s"Command should use package-qualified name: $stderr")
+    assert(
+      stderr.contains("com.other.Registry") || stderr.contains("com.example.Registry"),
+      s"Command should use package-qualified name: $stderr"
+    )
   }
 
   test("explain disambiguation: --brief still shows disambiguation on stderr") {
-    val idx = WorkspaceIndex(workspace, needBlooms = true)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace, needBlooms = true)
     val (stdout, stderr) = captureOutErr {
-      runCommand("explain", List("Registry"),
-        CommandContext(idx = idx, workspace = workspace, brief = true))
+      runCommand(
+        "explain",
+        List("Registry"),
+        CommandContext(idx = idx, workspace = workspace, members = MembersOptions(brief = true))
+      )
     }
     assert(stdout.contains("Explanation of"), s"Should show explanation: $stdout")
     assert(stderr.contains("scalex explain"), s"Brief should still show disambiguation: $stderr")
   }
 
   test("explain disambiguation: package-qualified lookup produces no otherMatches") {
-    val idx = WorkspaceIndex(workspace, needBlooms = true)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace, needBlooms = true)
     val output = captureOut {
-      runCommand("explain", List("com.other.Registry"),
-        CommandContext(idx = idx, workspace = workspace, jsonOutput = true))
+      runCommand(
+        "explain",
+        List("com.other.Registry"),
+        CommandContext(idx = idx, workspace = workspace, output = OutputOptions(jsonOutput = true))
+      )
     }
     assert(output.contains("\"definition\""), s"Should resolve via package qualification: $output")
-    assert(!output.contains("\"otherMatches\""),
-      s"Package-qualified lookup should not produce otherMatches: $output")
+    assert(!output.contains("\"otherMatches\""), s"Package-qualified lookup should not produce otherMatches: $output")
   }
 
   test("explain disambiguation: otherMatches count matches stderr count") {
-    val idx = WorkspaceIndex(workspace, needBlooms = true)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace, needBlooms = true)
     val (stdout, stderr) = captureOutErr {
-      runCommand("explain", List("Registry"),
-        CommandContext(idx = idx, workspace = workspace))
+      runCommand("explain", List("Registry"), CommandContext(idx = idx, workspace = workspace))
     }
     assert(stderr.contains("1 other match"), s"Should show 1 other match: $stderr")
     // JSON output should have exactly 1 element in the array
     val jsonOut = captureOut {
-      runCommand("explain", List("Registry"),
-        CommandContext(idx = idx, workspace = workspace, jsonOutput = true))
+      runCommand(
+        "explain",
+        List("Registry"),
+        CommandContext(idx = idx, workspace = workspace, output = OutputOptions(jsonOutput = true))
+      )
     }
     val arrayContent = """"otherMatches":\[([^\]]*)\]""".r.findFirstMatchIn(jsonOut).map(_.group(1)).getOrElse("")
     val elements = arrayContent.split(",").filter(_.nonEmpty)
@@ -1301,44 +1561,50 @@ class CliSuite extends ScalexTestBase:
   // ── #132-135: overview preserves PascalCase in hub types ────────────────
 
   test("overview hub types preserve PascalCase names") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
-    val out = new java.io.ByteArrayOutputStream()
+    val idx = WorkspaceIndex.load(workspace)
+    val out = ByteArrayOutputStream()
     Console.withOut(out) {
-      runCommand("overview", Nil, CommandContext(idx = idx, workspace = workspace, limit = 10))
+      runCommand("overview", Nil, CommandContext(idx = idx, workspace = workspace, output = OutputOptions(limit = 10)))
     }
     val output = out.toString
     assert(output.contains("Most extended"), s"Should show most extended: $output")
     // Names should be PascalCase, not lowercase
     assert(!output.contains("userservice"), s"Should not have lowercased names: $output")
-    assert(output.contains("UserService") || output.contains("Processor"),
-      s"Should preserve PascalCase: $output")
+    assert(output.contains("UserService") || output.contains("Processor"), s"Should preserve PascalCase: $output")
   }
 
   // ── #132-135: overview shows signatures for hub types ────────────────────
 
   test("overview shows signatures next to hub types") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
-    val out = new java.io.ByteArrayOutputStream()
+    val idx = WorkspaceIndex.load(workspace)
+    val out = ByteArrayOutputStream()
     Console.withOut(out) {
-      runCommand("overview", Nil, CommandContext(idx = idx, workspace = workspace, limit = 10))
+      runCommand("overview", Nil, CommandContext(idx = idx, workspace = workspace, output = OutputOptions(limit = 10)))
     }
     val output = out.toString
     // Signatures should appear inline with hub types
-    assert(output.contains("trait") || output.contains("class") || output.contains("interface"),
-      s"Should show signatures next to hub types: $output")
+    assert(
+      output.contains("trait") || output.contains("class") || output.contains("interface"),
+      s"Should show signatures next to hub types: $output"
+    )
   }
 
   // ── #132-135: overview --path scopes architecture view ────────────────────
 
   test("overview --path restricts to path prefix") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
-    val out = new java.io.ByteArrayOutputStream()
+    val idx = WorkspaceIndex.load(workspace)
+    val out = ByteArrayOutputStream()
     Console.withOut(out) {
-      runCommand("overview", Nil, CommandContext(idx = idx, workspace = workspace, limit = 10,
-        pathFilter = Some("src/main/scala/com/example/")))
+      runCommand(
+        "overview",
+        Nil,
+        CommandContext(
+          idx = idx,
+          workspace = workspace,
+          filters = FiltersOptions(pathFilter = Some("src/main/scala/com/example/")),
+          output = OutputOptions(limit = 10)
+        )
+      )
     }
     val output = out.toString
     assert(output.contains("Project overview"), s"Should show overview: $output")
@@ -1350,12 +1616,14 @@ class CliSuite extends ScalexTestBase:
   // ── #132-135: --exclude-path ────────────────────────────────────────────
 
   test("--exclude-path filters out symbols from excluded path") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
-    val out = new java.io.ByteArrayOutputStream()
+    val idx = WorkspaceIndex.load(workspace)
+    val out = ByteArrayOutputStream()
     Console.withOut(out) {
-      runCommand("def", List("UserService"),
-        CommandContext(idx = idx, workspace = workspace, excludePath = Some("src/test/")))
+      runCommand(
+        "def",
+        List("UserService"),
+        CommandContext(idx = idx, workspace = workspace, filters = FiltersOptions(excludePath = Some("src/test/")))
+      )
     }
     val output = out.toString
     assert(output.contains("UserService"), s"Should still find UserService: $output")
@@ -1365,12 +1633,14 @@ class CliSuite extends ScalexTestBase:
   // ── #132-135: symbols --summary ──────────────────────────────────────────
 
   test("symbols --summary shows grouped counts by kind") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
-    val out = new java.io.ByteArrayOutputStream()
+    val idx = WorkspaceIndex.load(workspace)
+    val out = ByteArrayOutputStream()
     Console.withOut(out) {
-      runCommand("symbols", List("src/main/scala/com/example/Model.scala"),
-        CommandContext(idx = idx, workspace = workspace, summaryMode = true))
+      runCommand(
+        "symbols",
+        List("src/main/scala/com/example/Model.scala"),
+        CommandContext(idx = idx, workspace = workspace, overview = OverviewOptions(summaryMode = true))
+      )
     }
     val output = out.toString
     // Should show kind counts, not individual symbols
@@ -1380,37 +1650,43 @@ class CliSuite extends ScalexTestBase:
   // ── #132-135: explain totalImpls hint ──────────────────────────────────
 
   test("explain shows totalImpls hint when more impls exist than limit") {
-    val idx = WorkspaceIndex(workspace, needBlooms = true)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace, needBlooms = true)
     val output = captureOut {
       // Processor has 4 impls, set limit to 2
-      runCommand("explain", List("Processor"),
-        CommandContext(idx = idx, workspace = workspace, implLimit = 2))
+      runCommand(
+        "explain",
+        List("Processor"),
+        CommandContext(idx = idx, workspace = workspace, members = MembersOptions(implLimit = 2))
+      )
     }
-    assert(output.contains("showing 2 of") || output.contains("--impl-limit"),
-      s"Should show totalImpls hint: $output")
+    assert(output.contains("showing 2 of") || output.contains("--impl-limit"), s"Should show totalImpls hint: $output")
   }
 
   // ── #132-135: explain companion members deduplication ────────────────────
 
   test("explain deduplicates companion members shared with primary") {
-    val idx = WorkspaceIndex(workspace, needBlooms = true)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace, needBlooms = true)
     val output = captureOut {
-      runCommand("explain", List("Database"), CommandContext(idx = idx, workspace = workspace, implLimit = 10))
+      runCommand(
+        "explain",
+        List("Database"),
+        CommandContext(idx = idx, workspace = workspace, members = MembersOptions(implLimit = 10))
+      )
     }
     // If companion and primary share members, should show dedup note
-    assert(output.contains("Companion") || output.contains("Explanation of"),
-      s"Should show explanation: $output")
+    assert(output.contains("Companion") || output.contains("Explanation of"), s"Should show explanation: $output")
   }
 
   // ── #132-135: overview JSON includes signatures ──────────────────────────
 
   test("overview JSON includes signature field in mostExtended") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val output = captureOut {
-      runCommand("overview", Nil, CommandContext(idx = idx, workspace = workspace, limit = 10, jsonOutput = true))
+      runCommand(
+        "overview",
+        Nil,
+        CommandContext(idx = idx, workspace = workspace, output = OutputOptions(limit = 10, jsonOutput = true))
+      )
     }
     assert(output.contains("\"signature\""), s"JSON should include signature field: $output")
   }
@@ -1418,11 +1694,18 @@ class CliSuite extends ScalexTestBase:
   // ── #132-135: symbols --summary JSON outputs structured data ──────────
 
   test("symbols --summary --json outputs structured symbolsByKind object") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val output = captureOut {
-      runCommand("symbols", List("src/main/scala/com/example/Model.scala"),
-        CommandContext(idx = idx, workspace = workspace, summaryMode = true, jsonOutput = true))
+      runCommand(
+        "symbols",
+        List("src/main/scala/com/example/Model.scala"),
+        CommandContext(
+          idx = idx,
+          workspace = workspace,
+          output = OutputOptions(jsonOutput = true),
+          overview = OverviewOptions(summaryMode = true)
+        )
+      )
     }
     assert(output.contains("\"symbolsByKind\""), s"JSON should have symbolsByKind object: $output")
     assert(output.contains("\"total\""), s"JSON should have total field: $output")
@@ -1431,32 +1714,43 @@ class CliSuite extends ScalexTestBase:
   // ── explain --inherited ─────────────────────────────────────────────
 
   test("explain --inherited shows inherited members from parent type") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val output = captureOut {
-      runCommand("explain", List("UserProcessor"),
-        CommandContext(idx = idx, workspace = workspace, inherited = true))
+      runCommand(
+        "explain",
+        List("UserProcessor"),
+        CommandContext(idx = idx, workspace = workspace, members = MembersOptions(inherited = true))
+      )
     }
     assert(output.contains("Inherited from Processor"), s"Should show inherited section: $output")
     assert(output.contains("validate"), s"Should show inherited member 'validate': $output")
   }
 
   test("explain without --inherited does not show inherited members") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val output = captureOut {
-      runCommand("explain", List("UserProcessor"),
-        CommandContext(idx = idx, workspace = workspace, inherited = false))
+      runCommand(
+        "explain",
+        List("UserProcessor"),
+        CommandContext(idx = idx, workspace = workspace, members = MembersOptions(inherited = false))
+      )
     }
     assert(!output.contains("Inherited from"), s"Should not show inherited section: $output")
   }
 
   test("explain --inherited --json includes inherited field") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val output = captureOut {
-      runCommand("explain", List("UserProcessor"),
-        CommandContext(idx = idx, workspace = workspace, inherited = true, jsonOutput = true))
+      runCommand(
+        "explain",
+        List("UserProcessor"),
+        CommandContext(
+          idx = idx,
+          workspace = workspace,
+          output = OutputOptions(jsonOutput = true),
+          members = MembersOptions(inherited = true)
+        )
+      )
     }
     assert(output.contains("\"inherited\""), s"JSON should have inherited field: $output")
     assert(output.contains("\"parent\":\"Processor\""), s"JSON should reference parent: $output")
@@ -1465,21 +1759,30 @@ class CliSuite extends ScalexTestBase:
   // ── refs --top N ────────────────────────────────────────────────────
 
   test("refs --top N ranks files by reference count") {
-    val idx = WorkspaceIndex(workspace, needBlooms = true)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace, needBlooms = true)
     val output = captureOut {
-      runCommand("refs", List("UserService"),
-        CommandContext(idx = idx, workspace = workspace, topN = Some(5)))
+      runCommand(
+        "refs",
+        List("UserService"),
+        CommandContext(idx = idx, workspace = workspace, references = ReferencesOptions(topN = Some(5)))
+      )
     }
     assert(output.contains("files referencing 'UserService'"), s"Should show top refs header: $output")
   }
 
   test("refs --top N --json outputs structured ranking") {
-    val idx = WorkspaceIndex(workspace, needBlooms = true)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace, needBlooms = true)
     val output = captureOut {
-      runCommand("refs", List("UserService"),
-        CommandContext(idx = idx, workspace = workspace, topN = Some(3), jsonOutput = true))
+      runCommand(
+        "refs",
+        List("UserService"),
+        CommandContext(
+          idx = idx,
+          workspace = workspace,
+          output = OutputOptions(jsonOutput = true),
+          references = ReferencesOptions(topN = Some(3))
+        )
+      )
     }
     assert(output.contains("\"symbol\":\"UserService\""), s"JSON should have symbol: $output")
     assert(output.contains("\"files\":["), s"JSON should have files array: $output")
@@ -1489,11 +1792,13 @@ class CliSuite extends ScalexTestBase:
   // ── Override markers ──────────────────────────────────────────────────
 
   test("members --inherited shows override markers") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val output = captureOut {
-      runCommand("members", List("UserServiceLive"),
-        CommandContext(idx = idx, workspace = workspace, inherited = true))
+      runCommand(
+        "members",
+        List("UserServiceLive"),
+        CommandContext(idx = idx, workspace = workspace, members = MembersOptions(inherited = true))
+      )
     }
     assert(output.contains("[override]"), s"Should show [override] marker: $output")
     assert(output.contains("findUser"), s"Should contain findUser: $output")
@@ -1501,31 +1806,38 @@ class CliSuite extends ScalexTestBase:
   }
 
   test("members --inherited JSON includes isOverride") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val output = captureOut {
-      runCommand("members", List("UserServiceLive"),
-        CommandContext(idx = idx, workspace = workspace, inherited = true, jsonOutput = true))
+      runCommand(
+        "members",
+        List("UserServiceLive"),
+        CommandContext(
+          idx = idx,
+          workspace = workspace,
+          output = OutputOptions(jsonOutput = true),
+          members = MembersOptions(inherited = true)
+        )
+      )
     }
     assert(output.contains("\"isOverride\":true"), s"JSON should have isOverride: $output")
   }
 
   test("members without --inherited has no override markers") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val output = captureOut {
-      runCommand("members", List("UserServiceLive"),
-        CommandContext(idx = idx, workspace = workspace))
+      runCommand("members", List("UserServiceLive"), CommandContext(idx = idx, workspace = workspace))
     }
     assert(!output.contains("[override]"), s"Should not show [override] without --inherited: $output")
   }
 
   test("explain --inherited shows override markers") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val output = captureOut {
-      runCommand("explain", List("UserServiceLive"),
-        CommandContext(idx = idx, workspace = workspace, inherited = true, shallow = true))
+      runCommand(
+        "explain",
+        List("UserServiceLive"),
+        CommandContext(idx = idx, workspace = workspace, members = MembersOptions(inherited = true, shallow = true))
+      )
     }
     assert(output.contains("[override]"), s"Should show [override] marker: $output")
   }
@@ -1533,55 +1845,49 @@ class CliSuite extends ScalexTestBase:
   // ── Entrypoints ────────────────────────────────────────────────────────
 
   test("entrypoints finds @main annotated") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val output = captureOut {
-      runCommand("entrypoints", Nil,
-        CommandContext(idx = idx, workspace = workspace))
+      runCommand("entrypoints", Nil, CommandContext(idx = idx, workspace = workspace))
     }
     assert(output.contains("@main annotated"), s"Should have @main section: $output")
     assert(output.contains("run"), s"Should find @main def run: $output")
   }
 
   test("entrypoints finds def main methods") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val output = captureOut {
-      runCommand("entrypoints", Nil,
-        CommandContext(idx = idx, workspace = workspace))
+      runCommand("entrypoints", Nil, CommandContext(idx = idx, workspace = workspace))
     }
     assert(output.contains("def main("), s"Should have def main section: $output")
     assert(output.contains("MyApp"), s"Should find object MyApp: $output")
   }
 
   test("entrypoints finds extends App") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val output = captureOut {
-      runCommand("entrypoints", Nil,
-        CommandContext(idx = idx, workspace = workspace))
+      runCommand("entrypoints", Nil, CommandContext(idx = idx, workspace = workspace))
     }
     assert(output.contains("extends App"), s"Should have extends App section: $output")
     assert(output.contains("Legacy"), s"Should find Legacy object: $output")
   }
 
   test("entrypoints finds test suites") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val output = captureOut {
-      runCommand("entrypoints", Nil,
-        CommandContext(idx = idx, workspace = workspace))
+      runCommand("entrypoints", Nil, CommandContext(idx = idx, workspace = workspace))
     }
     assert(output.contains("Test suites"), s"Should have test suites section: $output")
     assert(output.contains("UserServiceTest"), s"Should find UserServiceTest: $output")
   }
 
   test("entrypoints --json produces structured output") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val output = captureOut {
-      runCommand("entrypoints", Nil,
-        CommandContext(idx = idx, workspace = workspace, jsonOutput = true))
+      runCommand(
+        "entrypoints",
+        Nil,
+        CommandContext(idx = idx, workspace = workspace, output = OutputOptions(jsonOutput = true))
+      )
     }
     assert(output.contains("\"entrypoints\":{"), s"JSON should have entrypoints: $output")
     assert(output.contains("\"mainAnnotated\":"), s"JSON should have mainAnnotated: $output")
@@ -1594,117 +1900,127 @@ class CliSuite extends ScalexTestBase:
   // ── body command: dotted syntax + error messages ───────────────────
 
   test("body Owner.member dotted syntax resolves to member body") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val output = captureOut {
-      runCommand("body", List("UserServiceLive.findUser"),
-        CommandContext(idx = idx, workspace = workspace))
+      runCommand("body", List("UserServiceLive.findUser"), CommandContext(idx = idx, workspace = workspace))
     }
     assert(output.contains("db.query"), s"Should find findUser body via dotted syntax: $output")
     assert(output.contains("UserServiceLive"), s"Should mention owner: $output")
   }
 
   test("body with --in owner not-found includes owner in message") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val output = captureOut {
-      runCommand("body", List("nonExistentMethod"),
-        CommandContext(idx = idx, workspace = workspace, inOwner = Some("UserServiceLive")))
+      runCommand(
+        "body",
+        List("nonExistentMethod"),
+        CommandContext(idx = idx, workspace = workspace, search = SearchOptions(inOwner = Some("UserServiceLive")))
+      )
     }
     assert(output.contains("UserServiceLive"), s"Error should mention owner: $output")
     assert(output.contains("No body found"), s"Should say not found: $output")
   }
 
   test("body --in not-found suggestions are scoped to owner members") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     // "nonExistent" doesn't exist in UserServiceLive — suggestions should list
     // UserServiceLive's members, not unrelated global symbols
     val output = captureOut {
-      runCommand("body", List("nonExistent"),
-        CommandContext(idx = idx, workspace = workspace, inOwner = Some("UserServiceLive")))
+      runCommand(
+        "body",
+        List("nonExistent"),
+        CommandContext(idx = idx, workspace = workspace, search = SearchOptions(inOwner = Some("UserServiceLive")))
+      )
     }
     assert(output.contains("No body found"), s"Should say not found: $output")
     // Suggestions should mention members of UserServiceLive (findUser, createUser)
     assert(output.contains("in UserServiceLive"), s"Suggestions should be scoped to owner: $output")
-    assert(output.contains("findUser") || output.contains("createUser"),
-      s"Suggestions should include actual owner members: $output")
+    assert(
+      output.contains("findUser") || output.contains("createUser"),
+      s"Suggestions should include actual owner members: $output"
+    )
     // Should NOT suggest symbols from unrelated types (e.g. Helper.formatUser)
     assert(!output.contains("formatUser"), s"Should NOT suggest unrelated symbols: $output")
   }
 
   test("body --in not-found suggestions are ranked by similarity") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     // "find" should rank findUser higher than createUser
     val output = captureOut {
-      runCommand("body", List("find"),
-        CommandContext(idx = idx, workspace = workspace, inOwner = Some("UserServiceLive")))
+      runCommand(
+        "body",
+        List("find"),
+        CommandContext(idx = idx, workspace = workspace, search = SearchOptions(inOwner = Some("UserServiceLive")))
+      )
     }
     // findUser should appear before createUser since "find" is a prefix of "findUser"
     val findIdx = output.indexOf("findUser")
     val createIdx = output.indexOf("createUser")
     assert(findIdx >= 0, s"Should suggest findUser: $output")
-    assert(findIdx < createIdx || createIdx < 0,
-      s"findUser should be ranked before createUser for query 'find': $output")
+    assert(
+      findIdx < createIdx || createIdx < 0,
+      s"findUser should be ranked before createUser for query 'find': $output"
+    )
   }
 
   test("body --in suggestions do not promote short members via reverse-contains") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     // ShortNames has members: e, execute, evaluate
     // Query "eval" — "evaluate" is a legitimate prefix match.
     // Without the fix, "e" is ALSO promoted to prefix via reverse-prefix
     // ("eval".startsWith("e") is true) and appears before "evaluate".
     // With the fix, only forward checks apply: "e".startsWith("eval") is
     // false, so "e" falls to rest and "evaluate" correctly ranks first.
-    val suggestions = mkOwnerScopedSuggestions("eval", "ShortNames",
-      CommandContext(idx = idx, workspace = workspace))
+    val suggestions = mkOwnerScopedSuggestions("eval", "ShortNames", CommandContext(idx = idx, workspace = workspace))
     assert(suggestions.nonEmpty, s"Should have suggestions: $suggestions")
     val evaluateIdx = suggestions.indexWhere(_.contains("evaluate"))
     val eIdx = suggestions.indexWhere(s => s.contains(" e "))
     assert(evaluateIdx >= 0, s"Should suggest evaluate: $suggestions")
     assert(eIdx >= 0, s"Should suggest e: $suggestions")
     // "evaluate" (prefix match) should rank before "e" (rest bucket)
-    assert(evaluateIdx < eIdx,
-      s"evaluate (prefix match) should rank before short member 'e' (rest): $suggestions")
+    assert(evaluateIdx < eIdx, s"evaluate (prefix match) should rank before short member 'e' (rest): $suggestions")
   }
 
   test("body dotted syntax not used when --in is already set") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     // UserServiceLive.findUser with --in should treat whole string as symbol name, not split
     val output = captureOut {
-      runCommand("body", List("UserServiceLive.findUser"),
-        CommandContext(idx = idx, workspace = workspace, inOwner = Some("UserServiceLive")))
+      runCommand(
+        "body",
+        List("UserServiceLive.findUser"),
+        CommandContext(idx = idx, workspace = workspace, search = SearchOptions(inOwner = Some("UserServiceLive")))
+      )
     }
     // With --in already set, dotted fallback is skipped; "UserServiceLive.findUser" is not a real symbol name
     assert(output.contains("No body found"), s"Should not find body when --in is set with dotted symbol: $output")
   }
 
   test("body dotted syntax respects --no-tests filter") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     // UserServiceSpec is in src/test/ and has testFindUser — should be found without --no-tests
     val withTests = captureOut {
-      runCommand("body", List("UserServiceSpec.testFindUser"),
-        CommandContext(idx = idx, workspace = workspace))
+      runCommand("body", List("UserServiceSpec.testFindUser"), CommandContext(idx = idx, workspace = workspace))
     }
     assert(withTests.contains("testFindUser"), s"Should find testFindUser without --no-tests: $withTests")
     // With --no-tests, the test file owner should be excluded
     val noTests = captureOut {
-      runCommand("body", List("UserServiceSpec.testFindUser"),
-        CommandContext(idx = idx, workspace = workspace, noTests = true))
+      runCommand(
+        "body",
+        List("UserServiceSpec.testFindUser"),
+        CommandContext(idx = idx, workspace = workspace, filters = FiltersOptions(noTests = true))
+      )
     }
     assert(noTests.contains("No body found"), s"Should NOT find testFindUser with --no-tests: $noTests")
   }
 
   test("body dotted syntax respects --exclude-path filter") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val output = captureOut {
-      runCommand("body", List("UserServiceLive.findUser"),
-        CommandContext(idx = idx, workspace = workspace, excludePath = Some("src/main")))
+      runCommand(
+        "body",
+        List("UserServiceLive.findUser"),
+        CommandContext(idx = idx, workspace = workspace, filters = FiltersOptions(excludePath = Some("src/main")))
+      )
     }
     assert(output.contains("No body found"), s"Should NOT find body when path is excluded: $output")
   }
@@ -1712,54 +2028,77 @@ class CliSuite extends ScalexTestBase:
   // ── #172: body command — nested local defs + filter fixes ───────────
 
   test("body --in finds nested local def via command") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val output = captureOut {
-      runCommand("body", List("runSteps"),
-        CommandContext(idx = idx, workspace = workspace, inOwner = Some("Pipeline")))
+      runCommand(
+        "body",
+        List("runSteps"),
+        CommandContext(idx = idx, workspace = workspace, search = SearchOptions(inOwner = Some("Pipeline")))
+      )
     }
     assert(output.contains("def runSteps"), s"Should find local def runSteps: $output")
     assert(output.contains("Pipeline"), s"Should mention Pipeline: $output")
   }
 
   test("body --in with --path filter on fallback restricts to matching files") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     // Pipeline is in src/main/ — use --path to include it
     val output = captureOut {
-      runCommand("body", List("runSteps"),
-        CommandContext(idx = idx, workspace = workspace, inOwner = Some("Pipeline"),
-          pathFilter = Some("src/main/")))
+      runCommand(
+        "body",
+        List("runSteps"),
+        CommandContext(
+          idx = idx,
+          workspace = workspace,
+          filters = FiltersOptions(pathFilter = Some("src/main/")),
+          search = SearchOptions(inOwner = Some("Pipeline"))
+        )
+      )
     }
     assert(output.contains("def runSteps"), s"Should find runSteps with matching --path: $output")
     // Now exclude it via path
     val excluded = captureOut {
-      runCommand("body", List("runSteps"),
-        CommandContext(idx = idx, workspace = workspace, inOwner = Some("Pipeline"),
-          pathFilter = Some("src/test/")))
+      runCommand(
+        "body",
+        List("runSteps"),
+        CommandContext(
+          idx = idx,
+          workspace = workspace,
+          filters = FiltersOptions(pathFilter = Some("src/test/")),
+          search = SearchOptions(inOwner = Some("Pipeline"))
+        )
+      )
     }
     assert(excluded.contains("No body found"), s"Should NOT find runSteps when --path excludes it: $excluded")
   }
 
   test("body --in with --no-tests on fallback owner lookup") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     // testFindUser is a method in UserServiceSpec (src/test/). With --in and --no-tests,
     // the owner lookup should exclude test files.
     val output = captureOut {
-      runCommand("body", List("testFindUser"),
-        CommandContext(idx = idx, workspace = workspace, inOwner = Some("UserServiceSpec"),
-          noTests = true))
+      runCommand(
+        "body",
+        List("testFindUser"),
+        CommandContext(
+          idx = idx,
+          workspace = workspace,
+          filters = FiltersOptions(noTests = true),
+          search = SearchOptions(inOwner = Some("UserServiceSpec"))
+        )
+      )
     }
     assert(output.contains("No body found"), s"Should NOT find testFindUser when --no-tests excludes owner: $output")
   }
 
   test("body finds local def nested inside synchronized/wrapper call") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val output = captureOut {
-      runCommand("body", List("processBatch"),
-        CommandContext(idx = idx, workspace = workspace, inOwner = Some("Scheduler")))
+      runCommand(
+        "body",
+        List("processBatch"),
+        CommandContext(idx = idx, workspace = workspace, search = SearchOptions(inOwner = Some("Scheduler")))
+      )
     }
     assert(output.contains("def processBatch"), s"Should find local def inside synchronized: $output")
     assert(output.contains("batch.size"), s"Should contain body: $output")
@@ -1768,14 +2107,16 @@ class CliSuite extends ScalexTestBase:
   // ── #197: body --in finds nested def when same name is indexed elsewhere ──
 
   test("body --in finds nested def when same name is indexed in a different file") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     // "create" is indexed as a top-level def in Pipeline.scala (Pipeline.create).
     // It also exists as a local def inside Assembler.build().
     // body create --in Assembler must search the owner's file, not just the indexed file.
     val output = captureOut {
-      runCommand("body", List("create"),
-        CommandContext(idx = idx, workspace = workspace, inOwner = Some("Assembler")))
+      runCommand(
+        "body",
+        List("create"),
+        CommandContext(idx = idx, workspace = workspace, search = SearchOptions(inOwner = Some("Assembler")))
+      )
     }
     assert(output.contains("def create"), s"Should find local def create in Assembler: $output")
     assert(output.contains("toUpperCase"), s"Should contain the body: $output")
@@ -1783,13 +2124,15 @@ class CliSuite extends ScalexTestBase:
   }
 
   test("body on Java file does not crash with parser error") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     // BrokenRecord.java may trigger JavaParser internal errors.
     // The command should return gracefully, not throw.
     val output = captureOut {
-      runCommand("body", List("Ok"),
-        CommandContext(idx = idx, workspace = workspace, inOwner = Some("BrokenRecord")))
+      runCommand(
+        "body",
+        List("Ok"),
+        CommandContext(idx = idx, workspace = workspace, search = SearchOptions(inOwner = Some("BrokenRecord")))
+      )
     }
     // Either finds the result or says "No body found" — must not crash
     assert(output.nonEmpty, s"Should produce output, not crash: $output")
@@ -1798,12 +2141,14 @@ class CliSuite extends ScalexTestBase:
   // ── #208: body on abstract def should show signature, not "No body found" ──
 
   test("body --in on abstract def in trait should show signature") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     // UserService.findUser is an abstract def (no body) — should show the signature
     val output = captureOut {
-      runCommand("body", List("findUser"),
-        CommandContext(idx = idx, workspace = workspace, inOwner = Some("UserService")))
+      runCommand(
+        "body",
+        List("findUser"),
+        CommandContext(idx = idx, workspace = workspace, search = SearchOptions(inOwner = Some("UserService")))
+      )
     }
     // Currently fails: returns "No body found" because extractBody only handles Defn.Def, not Decl.Def
     assert(!output.contains("No body found"), s"Should NOT say 'No body found' for abstract def: $output")
@@ -1812,12 +2157,14 @@ class CliSuite extends ScalexTestBase:
   }
 
   test("body on abstract def without --in should show signature") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     // processPayment is abstract in PaymentService trait
     val output = captureOut {
-      runCommand("body", List("processPayment"),
-        CommandContext(idx = idx, workspace = workspace, inOwner = Some("PaymentService")))
+      runCommand(
+        "body",
+        List("processPayment"),
+        CommandContext(idx = idx, workspace = workspace, search = SearchOptions(inOwner = Some("PaymentService")))
+      )
     }
     // Should show the abstract signature from PaymentService, not "No body found"
     assert(!output.contains("No body found"), s"Should NOT say 'No body found' for abstract def: $output")
@@ -1828,81 +2175,137 @@ class CliSuite extends ScalexTestBase:
 
   test("parseFlags extracts --path from arg list") {
     val flags = parseFlags(List("Parser", "--verbose", "--no-tests", "--path", "compiler/src/"))
-    assertEquals(flags.pathFilter, Some("compiler/src/"))
-    assert(flags.verbose)
-    assert(flags.noTests)
-    assertEquals(flags.cleanArgs, List("Parser"))
+    assertEquals(flags(PathFlag), Some("compiler/src/"))
+    assert(flags(VerboseFlag))
+    assert(flags(NoTestsFlag))
+    assertEquals(flags.positional, List("Parser"))
   }
 
   test("parseFlags strips leading / from --path") {
     val flags = parseFlags(List("Foo", "--path", "/src/main/"))
-    assertEquals(flags.pathFilter, Some("src/main/"))
+    assertEquals(flags(PathFlag), Some("src/main/"))
   }
 
   test("parseFlags extracts --in owner") {
     val flags = parseFlags(List("runPhases", "--in", "Run", "--no-tests"))
-    assertEquals(flags.inOwner, Some("Run"))
-    assert(flags.noTests)
-    assertEquals(flags.cleanArgs, List("runPhases"))
+    assertEquals(flags(InFlag), Some("Run"))
+    assert(flags(NoTestsFlag))
+    assertEquals(flags.positional, List("runPhases"))
   }
 
-  test("parseFlags with no flags returns defaults and full cleanArgs") {
+  test("parseFlags with no flags returns defaults and full positional list") {
     val flags = parseFlags(List("UserService"))
-    assertEquals(flags.pathFilter, None)
-    assertEquals(flags.inOwner, None)
-    assert(!flags.noTests)
-    assert(!flags.verbose)
-    assertEquals(flags.cleanArgs, List("UserService"))
+    assertEquals(flags(PathFlag), None)
+    assertEquals(flags(InFlag), None)
+    assert(!flags(NoTestsFlag))
+    assert(!flags(VerboseFlag))
+    assertEquals(flags.positional, List("UserService"))
+  }
+
+  test("parseFlags keeps a positional arg that equals a flag value") {
+    // Regression: the old indexOf-based cleanArgs dropped every occurrence of
+    // a token that appeared anywhere as a flag value
+    val flags = parseFlags(List("def", "--kind", "class", "class"))
+    assertEquals(flags(KindFlag), Some("class"))
+    assertEquals(flags.positional, List("def", "class"))
+  }
+
+  test("parseFlags --limit 0 means unlimited in the command context") {
+    val idx = WorkspaceIndex.load(workspace)
+    assertEquals(flagsToContext(parseFlags(List("--limit", "0")), idx, workspace).output.limit, Int.MaxValue)
+  }
+
+  test("parseFlags collects repeated -e patterns in order") {
+    val flags = parseFlags(List("grep", "-e", "foo", "-e", "bar"))
+    assertEquals(flags(GrepPatternFlag), List("foo", "bar"))
+    assertEquals(flags.positional, List("grep"))
+  }
+
+  test("parseFlags last occurrence wins when both -w and --workspace are passed") {
+    assertEquals(parseFlags(List("-w", "short", "--workspace", "long"))(WorkspaceFlag), Some("long"))
+    assertEquals(parseFlags(List("--workspace", "long", "-w", "short"))(WorkspaceFlag), Some("short"))
+  }
+
+  test("parseFlags --up and --down together keep both directions") {
+    val idx = WorkspaceIndex.load(workspace)
+    val both = flagsToContext(parseFlags(List("Foo", "--up", "--down")), idx, workspace)
+    assert(both.hierarchy.goUp)
+    assert(both.hierarchy.goDown)
+    val onlyUp = flagsToContext(parseFlags(List("Foo", "--up")), idx, workspace)
+    assert(onlyUp.hierarchy.goUp)
+    assert(!onlyUp.hierarchy.goDown)
+  }
+
+  test("parseFlags --exact wins over --prefix") {
+    val idx = WorkspaceIndex.load(workspace)
+    assertEquals(
+      flagsToContext(parseFlags(List("Foo", "--prefix", "--exact")), idx, workspace).search.searchMode,
+      Some("exact")
+    )
+    assertEquals(flagsToContext(parseFlags(List("Foo", "--prefix")), idx, workspace).search.searchMode, Some("prefix"))
+  }
+
+  test("parseFlags ignores unknown long flags without treating them as positionals") {
+    assertEquals(parseFlags(List("Foo", "--does-not-exist")).positional, List("Foo"))
+  }
+
+  test("parseFlags --expand without a value does not swallow a following flag") {
+    val flags = parseFlags(List("explain", "Foo", "--expand", "--no-doc"))
+    assertEquals(flags(ExpandFlag), 1)
+    assert(flags(NoDocFlag))
+    val withValue = parseFlags(List("explain", "Foo", "--expand", "2"))
+    assertEquals(withValue(ExpandFlag), 2)
   }
 
   test("batch per-line flags override: --path applied to per-line context") {
     // Simulate what the batch loop does: parse per-line flags and build context
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val lineArgs = List("UserService", "--path", "src/main/scala/com/example/")
     val lineFlags = parseFlags(lineArgs)
     val ctx = flagsToContext(lineFlags, idx, workspace, batchMode = true)
-    assertEquals(ctx.pathFilter, Some("src/main/scala/com/example/"))
-    assert(ctx.batchMode)
+    assertEquals(ctx.filters.pathFilter, Some("src/main/scala/com/example/"))
+    assert(ctx.output.batchMode)
     // Run command with per-line context — should find UserService in that path
-    val output = captureOut { runCommand("def", lineFlags.cleanArgs, ctx) }
+    val output = captureOut { runCommand("def", lineFlags.positional, ctx) }
     assert(output.contains("UserService"), s"Should find UserService with per-line --path: $output")
   }
 
   test("batch per-line --path excludes non-matching results") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     // Registry exists in both com/example/ and com/other/
     val lineArgs = List("Registry", "--path", "src/main/scala/com/other/")
     val lineFlags = parseFlags(lineArgs)
     val ctx = flagsToContext(lineFlags, idx, workspace, batchMode = true)
-    val output = captureOut { runCommand("def", lineFlags.cleanArgs, ctx) }
+    val output = captureOut { runCommand("def", lineFlags.positional, ctx) }
     assert(output.contains("com.other"), s"Should find com.other.Registry: $output")
     assert(!output.contains("com.example"), s"Should NOT find com.example.Registry: $output")
   }
 
   test("batch per-line --no-tests applied independently") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     // Without --no-tests, UserServiceSpec (in src/test/) should appear
     val withTests = parseFlags(List("UserServiceSpec"))
     val ctxWith = flagsToContext(withTests, idx, workspace, batchMode = true)
-    val outWith = captureOut { runCommand("def", withTests.cleanArgs, ctxWith) }
+    val outWith = captureOut { runCommand("def", withTests.positional, ctxWith) }
     assert(outWith.contains("UserServiceSpec"), s"Should find test class without --no-tests: $outWith")
     // With --no-tests, it should be filtered out
     val noTests = parseFlags(List("UserServiceSpec", "--no-tests"))
     val ctxNo = flagsToContext(noTests, idx, workspace, batchMode = true)
-    val outNo = captureOut { runCommand("def", noTests.cleanArgs, ctxNo) }
-    assert(!outNo.contains("UserServiceSpec") || outNo.contains("not found"),
-      s"Should NOT find test class with --no-tests: $outNo")
+    val outNo = captureOut { runCommand("def", noTests.positional, ctxNo) }
+    assert(
+      !outNo.contains("UserServiceSpec") || outNo.contains("not found"),
+      s"Should NOT find test class with --no-tests: $outNo"
+    )
   }
 
   test("entrypoints --no-tests excludes test suites from results") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val output = captureOut {
-      runCommand("entrypoints", Nil,
-        CommandContext(idx = idx, workspace = workspace, noTests = true))
+      runCommand(
+        "entrypoints",
+        Nil,
+        CommandContext(idx = idx, workspace = workspace, filters = FiltersOptions(noTests = true))
+      )
     }
     assert(!output.contains("UserServiceTest"), s"Should not show test suites with --no-tests: $output")
   }
@@ -1910,11 +2313,18 @@ class CliSuite extends ScalexTestBase:
   // ── #180: members --body ──────────────────────────────────────────────
 
   test("members --body inlines method bodies") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val output = captureOut {
-      runCommand("members", List("PaymentServiceLive"),
-        CommandContext(idx = idx, workspace = workspace, limit = 50, withBody = true))
+      runCommand(
+        "members",
+        List("PaymentServiceLive"),
+        CommandContext(
+          idx = idx,
+          workspace = workspace,
+          output = OutputOptions(limit = 50),
+          members = MembersOptions(withBody = true)
+        )
+      )
     }
     // Should show inline body for processPayment
     assert(output.contains("processPayment"), s"Should list processPayment: $output")
@@ -1923,11 +2333,18 @@ class CliSuite extends ScalexTestBase:
   }
 
   test("members --body --max-lines filters large bodies") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val output = captureOut {
-      runCommand("members", List("Pipeline"),
-        CommandContext(idx = idx, workspace = workspace, limit = 50, withBody = true, maxBodyLines = 5))
+      runCommand(
+        "members",
+        List("Pipeline"),
+        CommandContext(
+          idx = idx,
+          workspace = workspace,
+          output = OutputOptions(limit = 50),
+          members = MembersOptions(withBody = true, maxBodyLines = 5)
+        )
+      )
     }
     // validate is 4 lines — should get a body (within limit of 5)
     // execute is >5 lines — should NOT get a body
@@ -1940,11 +2357,18 @@ class CliSuite extends ScalexTestBase:
   }
 
   test("members --body --json includes body fields") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val output = captureOut {
-      runCommand("members", List("PaymentServiceLive"),
-        CommandContext(idx = idx, workspace = workspace, limit = 50, jsonOutput = true, withBody = true))
+      runCommand(
+        "members",
+        List("PaymentServiceLive"),
+        CommandContext(
+          idx = idx,
+          workspace = workspace,
+          output = OutputOptions(limit = 50, jsonOutput = true),
+          members = MembersOptions(withBody = true)
+        )
+      )
     }
     assert(output.contains("\"body\":\""), s"JSON should contain body field: $output")
     assert(output.contains("\"bodyStartLine\":"), s"JSON should contain bodyStartLine: $output")
@@ -1952,11 +2376,13 @@ class CliSuite extends ScalexTestBase:
   }
 
   test("members --body without flag does not include bodies") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val output = captureOut {
-      runCommand("members", List("PaymentServiceLive"),
-        CommandContext(idx = idx, workspace = workspace, limit = 50))
+      runCommand(
+        "members",
+        List("PaymentServiceLive"),
+        CommandContext(idx = idx, workspace = workspace, output = OutputOptions(limit = 50))
+      )
     }
     // Should list members but no body lines
     assert(output.contains("processPayment"), s"Should list members: $output")
@@ -1966,11 +2392,19 @@ class CliSuite extends ScalexTestBase:
   // ── #180: overrides --body ────────────────────────────────────────────
 
   test("overrides --body inlines override bodies") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val output = captureOut {
-      runCommand("overrides", List("findUser"),
-        CommandContext(idx = idx, workspace = workspace, limit = 50, withBody = true, ofTrait = Some("UserService")))
+      runCommand(
+        "overrides",
+        List("findUser"),
+        CommandContext(
+          idx = idx,
+          workspace = workspace,
+          output = OutputOptions(limit = 50),
+          members = MembersOptions(withBody = true),
+          hierarchy = HierarchyOptions(ofTrait = Some("UserService"))
+        )
+      )
     }
     assert(output.contains("findUser"), s"Should find overrides: $output")
     // Should show inline body for the overriding implementations
@@ -1978,33 +2412,56 @@ class CliSuite extends ScalexTestBase:
   }
 
   test("overrides --body --max-lines filters large override bodies") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     // Use maxBodyLines = 0 (unlimited) — all override bodies should appear
     val output = captureOut {
-      runCommand("overrides", List("findUser"),
-        CommandContext(idx = idx, workspace = workspace, limit = 50, withBody = true, maxBodyLines = 0, ofTrait = Some("UserService")))
+      runCommand(
+        "overrides",
+        List("findUser"),
+        CommandContext(
+          idx = idx,
+          workspace = workspace,
+          output = OutputOptions(limit = 50),
+          members = MembersOptions(withBody = true, maxBodyLines = 0),
+          hierarchy = HierarchyOptions(ofTrait = Some("UserService"))
+        )
+      )
     }
     assert(output.contains("| "), s"Should have body lines with unlimited maxBodyLines: $output")
   }
 
   test("overrides --body --json includes body fields") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val output = captureOut {
-      runCommand("overrides", List("findUser"),
-        CommandContext(idx = idx, workspace = workspace, limit = 50, jsonOutput = true, withBody = true, ofTrait = Some("UserService")))
+      runCommand(
+        "overrides",
+        List("findUser"),
+        CommandContext(
+          idx = idx,
+          workspace = workspace,
+          output = OutputOptions(limit = 50, jsonOutput = true),
+          members = MembersOptions(withBody = true),
+          hierarchy = HierarchyOptions(ofTrait = Some("UserService"))
+        )
+      )
     }
     assert(output.contains("\"body\":\""), s"JSON should contain body: $output")
     assert(output.contains("\"bodyStartLine\":"), s"JSON should contain bodyStartLine: $output")
   }
 
   test("overrides without --body does not include body fields in JSON") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val output = captureOut {
-      runCommand("overrides", List("findUser"),
-        CommandContext(idx = idx, workspace = workspace, limit = 50, jsonOutput = true, ofTrait = Some("UserService")))
+      runCommand(
+        "overrides",
+        List("findUser"),
+        CommandContext(
+          idx = idx,
+          workspace = workspace,
+          output = OutputOptions(limit = 50, jsonOutput = true),
+          hierarchy = HierarchyOptions(ofTrait = Some("UserService"))
+        )
+      )
     }
     assert(!output.contains("\"body\":"), s"JSON should NOT contain body without --body: $output")
   }
@@ -2012,22 +2469,36 @@ class CliSuite extends ScalexTestBase:
   // ── #180: explain --body ──────────────────────────────────────────────
 
   test("explain --body inlines member bodies") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val output = captureOut {
-      runCommand("explain", List("PaymentServiceLive"),
-        CommandContext(idx = idx, workspace = workspace, limit = 50, withBody = true))
+      runCommand(
+        "explain",
+        List("PaymentServiceLive"),
+        CommandContext(
+          idx = idx,
+          workspace = workspace,
+          output = OutputOptions(limit = 50),
+          members = MembersOptions(withBody = true)
+        )
+      )
     }
     assert(output.contains("Members"), s"Should have Members section: $output")
     assert(output.contains("| "), s"Should have inline body lines: $output")
   }
 
   test("explain --body --max-lines limits body size") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val output = captureOut {
-      runCommand("explain", List("Pipeline"),
-        CommandContext(idx = idx, workspace = workspace, limit = 50, withBody = true, maxBodyLines = 1))
+      runCommand(
+        "explain",
+        List("Pipeline"),
+        CommandContext(
+          idx = idx,
+          workspace = workspace,
+          output = OutputOptions(limit = 50),
+          members = MembersOptions(withBody = true, maxBodyLines = 1)
+        )
+      )
     }
     // With maxBodyLines=1, multi-line methods should not have bodies inlined
     // But single-line vals/defs should
@@ -2035,32 +2506,45 @@ class CliSuite extends ScalexTestBase:
   }
 
   test("explain --body --json includes body in members") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val output = captureOut {
-      runCommand("explain", List("PaymentServiceLive"),
-        CommandContext(idx = idx, workspace = workspace, limit = 50, jsonOutput = true, withBody = true))
+      runCommand(
+        "explain",
+        List("PaymentServiceLive"),
+        CommandContext(
+          idx = idx,
+          workspace = workspace,
+          output = OutputOptions(limit = 50, jsonOutput = true),
+          members = MembersOptions(withBody = true)
+        )
+      )
     }
     assert(output.contains("\"body\":\""), s"JSON should contain body in members: $output")
     assert(output.contains("\"bodyStartLine\":"), s"JSON should contain bodyStartLine: $output")
   }
 
   test("explain --body alias --with-bodies works") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     // --with-bodies is parsed as withBody = true
     val f = parseFlags(List("explain", "PaymentServiceLive", "--with-bodies"))
-    assert(f.withBody, "--with-bodies should set withBody = true")
+    assert(f(BodyFlag), "--with-bodies should set withBody = true")
   }
 
   // ── #180: body -C N (context lines) ───────────────────────────────────
 
   test("body -C N shows context lines around body span") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val output = captureOut {
-      runCommand("body", List("findUser"),
-        CommandContext(idx = idx, workspace = workspace, inOwner = Some("UserServiceLive"), contextLines = 2))
+      runCommand(
+        "body",
+        List("findUser"),
+        CommandContext(
+          idx = idx,
+          workspace = workspace,
+          output = OutputOptions(contextLines = 2),
+          search = SearchOptions(inOwner = Some("UserServiceLive"))
+        )
+      )
     }
     assert(output.contains("---"), s"Should have --- separator between context and body: $output")
     assert(output.contains("findUser"), s"Should contain the body: $output")
@@ -2071,35 +2555,54 @@ class CliSuite extends ScalexTestBase:
   }
 
   test("body -C 0 shows no context lines") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val output = captureOut {
-      runCommand("body", List("findUser"),
-        CommandContext(idx = idx, workspace = workspace, inOwner = Some("UserServiceLive"), contextLines = 0))
+      runCommand(
+        "body",
+        List("findUser"),
+        CommandContext(
+          idx = idx,
+          workspace = workspace,
+          output = OutputOptions(contextLines = 0),
+          search = SearchOptions(inOwner = Some("UserServiceLive"))
+        )
+      )
     }
     assert(!output.contains("---"), s"Should NOT have --- separator without context: $output")
     assert(output.contains("findUser"), s"Should contain the body: $output")
   }
 
   test("body -C N JSON includes contextBefore and contextAfter") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val output = captureOut {
-      runCommand("body", List("findUser"),
-        CommandContext(idx = idx, workspace = workspace, inOwner = Some("UserServiceLive"),
-          contextLines = 1, jsonOutput = true))
+      runCommand(
+        "body",
+        List("findUser"),
+        CommandContext(
+          idx = idx,
+          workspace = workspace,
+          output = OutputOptions(contextLines = 1, jsonOutput = true),
+          search = SearchOptions(inOwner = Some("UserServiceLive"))
+        )
+      )
     }
     assert(output.contains("\"contextBefore\":["), s"JSON should have contextBefore: $output")
     assert(output.contains("\"contextAfter\":["), s"JSON should have contextAfter: $output")
   }
 
   test("body -C N JSON has no context fields when contextLines=0") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val output = captureOut {
-      runCommand("body", List("findUser"),
-        CommandContext(idx = idx, workspace = workspace, inOwner = Some("UserServiceLive"),
-          contextLines = 0, jsonOutput = true))
+      runCommand(
+        "body",
+        List("findUser"),
+        CommandContext(
+          idx = idx,
+          workspace = workspace,
+          output = OutputOptions(contextLines = 0, jsonOutput = true),
+          search = SearchOptions(inOwner = Some("UserServiceLive"))
+        )
+      )
     }
     assert(!output.contains("\"contextBefore\""), s"JSON should NOT have contextBefore without -C: $output")
     assert(!output.contains("\"contextAfter\""), s"JSON should NOT have contextAfter without -C: $output")
@@ -2108,11 +2611,18 @@ class CliSuite extends ScalexTestBase:
   // ── #180: body --imports ──────────────────────────────────────────────
 
   test("body --imports prepends file imports") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val output = captureOut {
-      runCommand("body", List("findUser"),
-        CommandContext(idx = idx, workspace = workspace, inOwner = Some("UserServiceLive"), showImports = true))
+      runCommand(
+        "body",
+        List("findUser"),
+        CommandContext(
+          idx = idx,
+          workspace = workspace,
+          search = SearchOptions(inOwner = Some("UserServiceLive")),
+          members = MembersOptions(showImports = true)
+        )
+      )
     }
     // UserService.scala has no top-level imports, so nothing should be prepended
     // But the body should still be shown
@@ -2120,36 +2630,47 @@ class CliSuite extends ScalexTestBase:
   }
 
   test("body --imports shows imports from file with imports") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     // ExplicitClient.scala has "import com.example.UserService"
     val output = captureOut {
-      runCommand("body", List("ExplicitClient"),
-        CommandContext(idx = idx, workspace = workspace, showImports = true))
+      runCommand(
+        "body",
+        List("ExplicitClient"),
+        CommandContext(idx = idx, workspace = workspace, members = MembersOptions(showImports = true))
+      )
     }
     assert(output.contains("Imports"), s"Should show imports header: $output")
     assert(output.contains("import com.example.UserService"), s"Should show import: $output")
   }
 
   test("body --imports JSON includes imports field") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     // AliasClient.scala has import statements with as-syntax
     val output = captureOut {
-      runCommand("body", List("AliasClient"),
-        CommandContext(idx = idx, workspace = workspace, jsonOutput = true, showImports = true))
+      runCommand(
+        "body",
+        List("AliasClient"),
+        CommandContext(
+          idx = idx,
+          workspace = workspace,
+          output = OutputOptions(jsonOutput = true),
+          members = MembersOptions(showImports = true)
+        )
+      )
     }
     assert(output.contains("\"imports\":\""), s"JSON should contain imports field: $output")
     assert(output.contains("UserService as US"), s"JSON imports should contain alias import: $output")
   }
 
   test("body --imports excludes local imports inside methods") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     // ExplicitClient.scala has only a top-level import — no local imports
     val output = captureOut {
-      runCommand("body", List("ExplicitClient"),
-        CommandContext(idx = idx, workspace = workspace, showImports = true))
+      runCommand(
+        "body",
+        List("ExplicitClient"),
+        CommandContext(idx = idx, workspace = workspace, members = MembersOptions(showImports = true))
+      )
     }
     assert(output.contains("import com.example.UserService"), s"Should show top-level import: $output")
     // Should NOT show any random local imports from other files
@@ -2157,11 +2678,13 @@ class CliSuite extends ScalexTestBase:
   }
 
   test("body without --imports does not show imports") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val output = captureOut {
-      runCommand("body", List("AliasClient"),
-        CommandContext(idx = idx, workspace = workspace, showImports = false))
+      runCommand(
+        "body",
+        List("AliasClient"),
+        CommandContext(idx = idx, workspace = workspace, members = MembersOptions(showImports = false))
+      )
     }
     assert(!output.contains("Imports —"), s"Should NOT show imports header: $output")
   }
@@ -2169,11 +2692,13 @@ class CliSuite extends ScalexTestBase:
   // ── #180: grep --in <symbol> ──────────────────────────────────────────
 
   test("grep --in scopes search to class body") {
-    val idx = WorkspaceIndex(workspace, needBlooms = false)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace, needBlooms = false)
     val output = captureOut {
-      runCommand("grep", List("def"),
-        CommandContext(idx = idx, workspace = workspace, inOwner = Some("PaymentServiceLive")))
+      runCommand(
+        "grep",
+        List("def"),
+        CommandContext(idx = idx, workspace = workspace, search = SearchOptions(inOwner = Some("PaymentServiceLive")))
+      )
     }
     // Should only find defs inside PaymentServiceLive, not globally
     assert(output.contains("processPayment"), s"Should find processPayment in PaymentServiceLive: $output")
@@ -2184,54 +2709,67 @@ class CliSuite extends ScalexTestBase:
   }
 
   test("grep --in with dotted Owner.member scopes to method body") {
-    val idx = WorkspaceIndex(workspace, needBlooms = false)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace, needBlooms = false)
     val output = captureOut {
-      runCommand("grep", List("remaining"),
-        CommandContext(idx = idx, workspace = workspace, inOwner = Some("Pipeline.runSteps")))
+      runCommand(
+        "grep",
+        List("remaining"),
+        CommandContext(idx = idx, workspace = workspace, search = SearchOptions(inOwner = Some("Pipeline.runSteps")))
+      )
     }
     // runSteps mentions "remaining" in its body
     assert(output.contains("remaining"), s"Should find 'remaining' inside Pipeline.runSteps: $output")
   }
 
   test("grep --in returns empty for nonexistent owner") {
-    val idx = WorkspaceIndex(workspace, needBlooms = false)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace, needBlooms = false)
     val output = captureOut {
-      runCommand("grep", List("def"),
-        CommandContext(idx = idx, workspace = workspace, inOwner = Some("NonExistentClass")))
+      runCommand(
+        "grep",
+        List("def"),
+        CommandContext(idx = idx, workspace = workspace, search = SearchOptions(inOwner = Some("NonExistentClass")))
+      )
     }
-    assert(output.contains("0 found") || output.contains("No matches"),
-      s"Should find no results for nonexistent owner: $output")
+    assert(
+      output.contains("0 found") || output.contains("No matches"),
+      s"Should find no results for nonexistent owner: $output"
+    )
   }
 
   test("grep --in --count shows count only") {
-    val idx = WorkspaceIndex(workspace, needBlooms = false)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace, needBlooms = false)
     val output = captureOut {
-      runCommand("grep", List("def"),
-        CommandContext(idx = idx, workspace = workspace, inOwner = Some("PaymentServiceLive"), countOnly = true))
+      runCommand(
+        "grep",
+        List("def"),
+        CommandContext(
+          idx = idx,
+          workspace = workspace,
+          output = OutputOptions(countOnly = true),
+          search = SearchOptions(inOwner = Some("PaymentServiceLive"))
+        )
+      )
     }
     // Should show count, not full results
     assert(output.contains("match"), s"Should show match count: $output")
   }
 
   test("grep --in header includes owner name") {
-    val idx = WorkspaceIndex(workspace, needBlooms = false)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace, needBlooms = false)
     val output = captureOut {
-      runCommand("grep", List("def"),
-        CommandContext(idx = idx, workspace = workspace, inOwner = Some("PaymentServiceLive")))
+      runCommand(
+        "grep",
+        List("def"),
+        CommandContext(idx = idx, workspace = workspace, search = SearchOptions(inOwner = Some("PaymentServiceLive")))
+      )
     }
     assert(output.contains("PaymentServiceLive"), s"Header should mention the scoped owner: $output")
   }
 
   test("grep without --in searches globally") {
-    val idx = WorkspaceIndex(workspace, needBlooms = false)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace, needBlooms = false)
     val output = captureOut {
-      runCommand("grep", List("processPayment"),
-        CommandContext(idx = idx, workspace = workspace))
+      runCommand("grep", List("processPayment"), CommandContext(idx = idx, workspace = workspace))
     }
     // Global grep should find it
     assert(output.contains("processPayment"), s"Global grep should find processPayment: $output")
@@ -2242,11 +2780,17 @@ class CliSuite extends ScalexTestBase:
   // ── #253: grep --in --each-method ──────────────────────────────────────
 
   test("grep --each-method reports matching methods with counts") {
-    val idx = WorkspaceIndex(workspace, needBlooms = false)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace, needBlooms = false)
     val output = captureOut {
-      runCommand("grep", List("def"),
-        CommandContext(idx = idx, workspace = workspace, inOwner = Some("PaymentServiceLive"), eachMethod = true))
+      runCommand(
+        "grep",
+        List("def"),
+        CommandContext(
+          idx = idx,
+          workspace = workspace,
+          search = SearchOptions(inOwner = Some("PaymentServiceLive"), eachMethod = true)
+        )
+      )
     }
     // Should list methods whose body contains "def"
     assert(output.contains("Methods in PaymentServiceLive"), s"Should have header: $output")
@@ -2254,32 +2798,50 @@ class CliSuite extends ScalexTestBase:
   }
 
   test("grep --each-method shows empty message when no methods match") {
-    val idx = WorkspaceIndex(workspace, needBlooms = false)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace, needBlooms = false)
     val output = captureOut {
-      runCommand("grep", List("ZZZZNONEXISTENT"),
-        CommandContext(idx = idx, workspace = workspace, inOwner = Some("PaymentServiceLive"), eachMethod = true))
+      runCommand(
+        "grep",
+        List("ZZZZNONEXISTENT"),
+        CommandContext(
+          idx = idx,
+          workspace = workspace,
+          search = SearchOptions(inOwner = Some("PaymentServiceLive"), eachMethod = true)
+        )
+      )
     }
     assert(output.contains("No methods"), s"Should show no-match message: $output")
   }
 
   test("grep --each-method returns not-found for unknown owner") {
-    val idx = WorkspaceIndex(workspace, needBlooms = false)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace, needBlooms = false)
     val output = captureOut {
-      runCommand("grep", List("def"),
-        CommandContext(idx = idx, workspace = workspace, inOwner = Some("NoSuchType"), eachMethod = true))
+      runCommand(
+        "grep",
+        List("def"),
+        CommandContext(
+          idx = idx,
+          workspace = workspace,
+          search = SearchOptions(inOwner = Some("NoSuchType"), eachMethod = true)
+        )
+      )
     }
-    assert(output.contains("not found") || output.contains("No class"),
-      s"Should indicate type not found: $output")
+    assert(output.contains("not found") || output.contains("No class"), s"Should indicate type not found: $output")
   }
 
   test("grep --each-method JSON output") {
-    val idx = WorkspaceIndex(workspace, needBlooms = false)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace, needBlooms = false)
     val output = captureOut {
-      runCommand("grep", List("true"),
-        CommandContext(idx = idx, workspace = workspace, inOwner = Some("PaymentServiceLive"), eachMethod = true, jsonOutput = true))
+      runCommand(
+        "grep",
+        List("true"),
+        CommandContext(
+          idx = idx,
+          workspace = workspace,
+          output = OutputOptions(jsonOutput = true),
+          search = SearchOptions(inOwner = Some("PaymentServiceLive"), eachMethod = true)
+        )
+      )
     }
     assert(output.contains(""""pattern":"true""""), s"JSON should contain pattern: $output")
     assert(output.contains(""""owner":"PaymentServiceLive""""), s"JSON should contain owner: $output")
@@ -2288,11 +2850,13 @@ class CliSuite extends ScalexTestBase:
   }
 
   test("grep --each-method without --in falls back to global grep") {
-    val idx = WorkspaceIndex(workspace, needBlooms = false)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace, needBlooms = false)
     val output = captureOut {
-      runCommand("grep", List("processPayment"),
-        CommandContext(idx = idx, workspace = workspace, eachMethod = true))
+      runCommand(
+        "grep",
+        List("processPayment"),
+        CommandContext(idx = idx, workspace = workspace, search = SearchOptions(eachMethod = true))
+      )
     }
     // Without --in, eachMethod is ignored; should work as normal grep
     assert(output.contains("processPayment"), s"Should find results globally: $output")
@@ -2302,46 +2866,46 @@ class CliSuite extends ScalexTestBase:
   // ── grep auto-literal fallback ────────────────────────────────────────
 
   test("grep with invalid regex finds matches via auto-literal fallback") {
-    val idx = WorkspaceIndex(workspace, needBlooms = false)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace, needBlooms = false)
     // "UserServiceLive(" contains an unbalanced paren — invalid Java regex
     val output = captureOut {
-      runCommand("grep", List("UserServiceLive("),
-        CommandContext(idx = idx, workspace = workspace))
+      runCommand("grep", List("UserServiceLive("), CommandContext(idx = idx, workspace = workspace))
     }
     assert(output.contains("UserServiceLive("), s"Should find literal match: $output")
     assert(!output.contains("Invalid regex"), s"Should NOT error: $output")
   }
 
   test("grep with valid regex still works as regex (not quoted)") {
-    val idx = WorkspaceIndex(workspace, needBlooms = false)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace, needBlooms = false)
     // "findUser|createUser" is valid Java regex — should match both methods
     val output = captureOut {
-      runCommand("grep", List("findUser|createUser"),
-        CommandContext(idx = idx, workspace = workspace))
+      runCommand("grep", List("findUser|createUser"), CommandContext(idx = idx, workspace = workspace))
     }
     assert(output.contains("findUser"), s"Should match findUser via alternation: $output")
     assert(output.contains("createUser"), s"Should match createUser via alternation: $output")
   }
 
   test("grep auto-literal JSON omits corrected field") {
-    val idx = WorkspaceIndex(workspace, needBlooms = false)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace, needBlooms = false)
     val output = captureOut {
-      runCommand("grep", List("findUser("),
-        CommandContext(idx = idx, workspace = workspace, jsonOutput = true))
+      runCommand(
+        "grep",
+        List("findUser("),
+        CommandContext(idx = idx, workspace = workspace, output = OutputOptions(jsonOutput = true))
+      )
     }
     assert(!output.contains("corrected"), s"JSON should NOT contain corrected field for literal fallback: $output")
     assert(output.contains("findUser("), s"JSON should contain matches: $output")
   }
 
   test("grep --in with invalid regex finds matches via auto-literal fallback") {
-    val idx = WorkspaceIndex(workspace, needBlooms = false)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace, needBlooms = false)
     val output = captureOut {
-      runCommand("grep", List("findUser("),
-        CommandContext(idx = idx, workspace = workspace, inOwner = Some("UserServiceLive")))
+      runCommand(
+        "grep",
+        List("findUser("),
+        CommandContext(idx = idx, workspace = workspace, search = SearchOptions(inOwner = Some("UserServiceLive")))
+      )
     }
     assert(output.contains("findUser("), s"Should find literal match in scoped grep: $output")
   }
@@ -2366,8 +2930,9 @@ class CliSuite extends ScalexTestBase:
   test("extractImportLines excludes local imports inside methods") {
     // Create a temp file directly (no git needed — extractImportLines reads any file)
     val file = workspace.resolve("src/main/scala/com/example/WithLocalImport.scala")
-    java.nio.file.Files.createDirectories(file.getParent)
-    java.nio.file.Files.writeString(file,
+    Files.createDirectories(file.getParent)
+    Files.writeString(
+      file,
       """package com.example
         |
         |import com.example.User
@@ -2378,7 +2943,8 @@ class CliSuite extends ScalexTestBase:
         |    Helper.formatUser(User("1", "test"))
         |  }
         |}
-        |""".stripMargin)
+        |""".stripMargin
+    )
 
     val result = extractImportLines(file)
     assert(result.isDefined, "Should find top-level imports")
@@ -2391,51 +2957,58 @@ class CliSuite extends ScalexTestBase:
 
   test("parseFlags parses --body flag") {
     val f = parseFlags(List("members", "Foo", "--body"))
-    assert(f.withBody, "--body should be true")
+    assert(f(BodyFlag), "--body should be true")
   }
 
   test("parseFlags parses --with-bodies alias") {
     val f = parseFlags(List("explain", "Foo", "--with-bodies"))
-    assert(f.withBody, "--with-bodies should set withBody = true")
+    assert(f(BodyFlag), "--with-bodies should set withBody = true")
   }
 
   test("parseFlags parses --max-lines flag with argument") {
     val f = parseFlags(List("members", "Foo", "--body", "--max-lines", "20"))
-    assert(f.withBody, "--body should be true")
-    assertEquals(f.maxBodyLines, 20)
+    assert(f(BodyFlag), "--body should be true")
+    assertEquals(f(MaxLinesFlag), 20)
   }
 
   test("parseFlags --max-lines defaults to 0") {
     val f = parseFlags(List("members", "Foo", "--body"))
-    assertEquals(f.maxBodyLines, 0)
+    assertEquals(f(MaxLinesFlag), 0)
   }
 
   test("parseFlags parses --imports flag") {
     val f = parseFlags(List("body", "Foo", "--imports"))
-    assert(f.showImports, "--imports should be true")
+    assert(f(ImportsFlag), "--imports should be true")
   }
 
   test("parseFlags --imports defaults to false") {
     val f = parseFlags(List("body", "Foo"))
-    assert(!f.showImports, "--imports should default to false")
+    assert(!f(ImportsFlag), "--imports should default to false")
   }
 
-  test("parseFlags --max-lines is excluded from cleanArgs") {
+  test("parseFlags --max-lines is excluded from positionals") {
     val f = parseFlags(List("members", "Foo", "--body", "--max-lines", "10"))
-    assert(!f.cleanArgs.contains("--max-lines"), "--max-lines should be excluded from cleanArgs")
-    assert(!f.cleanArgs.contains("10"), "10 (max-lines value) should be excluded from cleanArgs")
-    assert(f.cleanArgs.contains("Foo"), "Foo should remain in cleanArgs")
+    assert(!f.positional.contains("--max-lines"), "--max-lines should be excluded from positionals")
+    assert(!f.positional.contains("10"), "10 (max-lines value) should be excluded from positionals")
+    assert(f.positional.contains("Foo"), "Foo should remain in positionals")
   }
 
   // ── #180: body -C N + --imports combined ──────────────────────────────
 
   test("body -C N and --imports combined") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     // Use ExplicitClient — has imports and is not at the very start of the file
     val output = captureOut {
-      runCommand("body", List("ExplicitClient"),
-        CommandContext(idx = idx, workspace = workspace, contextLines = 1, showImports = true))
+      runCommand(
+        "body",
+        List("ExplicitClient"),
+        CommandContext(
+          idx = idx,
+          workspace = workspace,
+          output = OutputOptions(contextLines = 1),
+          members = MembersOptions(showImports = true)
+        )
+      )
     }
     // Should have imports section
     assert(output.contains("Imports"), s"Should show imports header: $output")
@@ -2445,11 +3018,18 @@ class CliSuite extends ScalexTestBase:
   }
 
   test("body -C N and --imports JSON combined") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val output = captureOut {
-      runCommand("body", List("ExplicitClient"),
-        CommandContext(idx = idx, workspace = workspace, contextLines = 1, showImports = true, jsonOutput = true))
+      runCommand(
+        "body",
+        List("ExplicitClient"),
+        CommandContext(
+          idx = idx,
+          workspace = workspace,
+          output = OutputOptions(contextLines = 1, jsonOutput = true),
+          members = MembersOptions(showImports = true)
+        )
+      )
     }
     assert(output.contains("\"imports\":\""), s"JSON should have imports field: $output")
     assert(output.contains("\"contextBefore\":["), s"JSON should have contextBefore: $output")
@@ -2459,8 +3039,7 @@ class CliSuite extends ScalexTestBase:
   // ── #180: enrichMemberWithBody helper ─────────────────────────────────
 
   test("enrichMemberWithBody returns body when within max-lines") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val file = workspace.resolve("src/main/scala/com/example/Documented.scala")
     val member = MemberInfo("processPayment", SymbolKind.Def, 8, "def processPayment(amount: BigDecimal): Boolean")
     val enriched = enrichMemberWithBody(member, file, "PaymentServiceLive", 5)
@@ -2469,8 +3048,7 @@ class CliSuite extends ScalexTestBase:
   }
 
   test("enrichMemberWithBody returns no body when over max-lines") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val file = workspace.resolve("src/main/scala/com/example/Pipeline.scala")
     val member = MemberInfo("execute", SymbolKind.Def, 4, "def execute(): Unit")
     // execute is a multi-line method, setting maxBodyLines=1 should exclude it
@@ -2479,8 +3057,7 @@ class CliSuite extends ScalexTestBase:
   }
 
   test("enrichMemberWithBody with maxBodyLines=0 means unlimited") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val file = workspace.resolve("src/main/scala/com/example/Pipeline.scala")
     val member = MemberInfo("execute", SymbolKind.Def, 4, "def execute(): Unit")
     val enriched = enrichMemberWithBody(member, file, "Pipeline", 0)
@@ -2490,11 +3067,13 @@ class CliSuite extends ScalexTestBase:
   // ── #198: members --limit 0 and --offset ──────────────────────────────
 
   test("members --limit 0 shows all members without truncation") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val output = captureOut {
-      runCommand("members", List("PaymentServiceLive"),
-        CommandContext(idx = idx, workspace = workspace, limit = Int.MaxValue))
+      runCommand(
+        "members",
+        List("PaymentServiceLive"),
+        CommandContext(idx = idx, workspace = workspace, output = OutputOptions(limit = Int.MaxValue))
+      )
     }
     // PaymentServiceLive has 5 members
     assert(output.contains("processPayment"), s"Should show processPayment: $output")
@@ -2506,23 +3085,27 @@ class CliSuite extends ScalexTestBase:
   }
 
   test("members --limit truncates and shows remainder") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val output = captureOut {
-      runCommand("members", List("PaymentServiceLive"),
-        CommandContext(idx = idx, workspace = workspace, limit = 2))
+      runCommand(
+        "members",
+        List("PaymentServiceLive"),
+        CommandContext(idx = idx, workspace = workspace, output = OutputOptions(limit = 2))
+      )
     }
     // Should show 2 members and truncation message
     assert(output.contains("... and 3 more"), s"Should show '... and 3 more': $output")
   }
 
   test("members --offset skips first N members") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     // Get all members first to know the order
     val allOutput = captureOut {
-      runCommand("members", List("PaymentServiceLive"),
-        CommandContext(idx = idx, workspace = workspace, limit = Int.MaxValue))
+      runCommand(
+        "members",
+        List("PaymentServiceLive"),
+        CommandContext(idx = idx, workspace = workspace, output = OutputOptions(limit = Int.MaxValue))
+      )
     }
     val allLines = allOutput.linesIterator.filter { l =>
       l.contains("    def  ") || l.contains("    val  ") || l.contains("    var  ") || l.contains("    type ")
@@ -2530,33 +3113,44 @@ class CliSuite extends ScalexTestBase:
 
     // Now get with offset=2, limit=unlimited — should skip first 2
     val offsetOutput = captureOut {
-      runCommand("members", List("PaymentServiceLive"),
-        CommandContext(idx = idx, workspace = workspace, limit = Int.MaxValue, offset = 2))
+      runCommand(
+        "members",
+        List("PaymentServiceLive"),
+        CommandContext(idx = idx, workspace = workspace, output = OutputOptions(limit = Int.MaxValue, offset = 2))
+      )
     }
     val offsetLines = offsetOutput.linesIterator.filter { l =>
       l.contains("    def  ") || l.contains("    val  ") || l.contains("    var  ") || l.contains("    type ")
     }.toList
 
-    assertEquals(offsetLines.size, allLines.size - 2, s"Offset 2 should skip 2 members.\nAll: $allLines\nOffset: $offsetLines")
+    assertEquals(
+      offsetLines.size,
+      allLines.size - 2,
+      s"Offset 2 should skip 2 members.\nAll: $allLines\nOffset: $offsetLines"
+    )
   }
 
   test("members --offset with --limit paginates correctly") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val output = captureOut {
-      runCommand("members", List("PaymentServiceLive"),
-        CommandContext(idx = idx, workspace = workspace, limit = 2, offset = 1))
+      runCommand(
+        "members",
+        List("PaymentServiceLive"),
+        CommandContext(idx = idx, workspace = workspace, output = OutputOptions(limit = 2, offset = 1))
+      )
     }
     // PaymentServiceLive has 5 members; offset=1, limit=2 → show 2, skip 1, remaining=2
     assert(output.contains("... and 2 more"), s"Should show '... and 2 more': $output")
   }
 
   test("members --offset beyond member count shows no members") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val output = captureOut {
-      runCommand("members", List("PaymentServiceLive"),
-        CommandContext(idx = idx, workspace = workspace, limit = Int.MaxValue, offset = 100))
+      runCommand(
+        "members",
+        List("PaymentServiceLive"),
+        CommandContext(idx = idx, workspace = workspace, output = OutputOptions(limit = Int.MaxValue, offset = 100))
+      )
     }
     // All 5 members skipped — no member lines should appear
     assert(!output.contains("processPayment"), s"Should NOT show any members: $output")
@@ -2564,11 +3158,17 @@ class CliSuite extends ScalexTestBase:
   }
 
   test("members --limit 0 --json shows all members") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val output = captureOut {
-      runCommand("members", List("PaymentServiceLive"),
-        CommandContext(idx = idx, workspace = workspace, limit = Int.MaxValue, jsonOutput = true))
+      runCommand(
+        "members",
+        List("PaymentServiceLive"),
+        CommandContext(
+          idx = idx,
+          workspace = workspace,
+          output = OutputOptions(limit = Int.MaxValue, jsonOutput = true)
+        )
+      )
     }
     assert(output.startsWith("["), s"JSON should start with bracket: $output")
     // Count JSON entries — PaymentServiceLive has 5 members
@@ -2577,11 +3177,17 @@ class CliSuite extends ScalexTestBase:
   }
 
   test("members --offset --json paginates correctly") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val output = captureOut {
-      runCommand("members", List("PaymentServiceLive"),
-        CommandContext(idx = idx, workspace = workspace, limit = 2, offset = 1, jsonOutput = true))
+      runCommand(
+        "members",
+        List("PaymentServiceLive"),
+        CommandContext(
+          idx = idx,
+          workspace = workspace,
+          output = OutputOptions(limit = 2, offset = 1, jsonOutput = true)
+        )
+      )
     }
     val memberCount = "\"name\":".r.findAllIn(output).size
     assertEquals(memberCount, 2, s"Should have 2 members in JSON with offset=1 limit=2: $output")
@@ -2589,66 +3195,93 @@ class CliSuite extends ScalexTestBase:
 
   test("parseFlags parses --offset flag") {
     val f = parseFlags(List("members", "Foo", "--offset", "10"))
-    assertEquals(f.offset, 10)
+    assertEquals(f(OffsetFlag), 10)
   }
 
   test("parseFlags --offset defaults to 0") {
     val f = parseFlags(List("members", "Foo"))
-    assertEquals(f.offset, 0)
+    assertEquals(f(OffsetFlag), 0)
   }
 
-  test("parseFlags --offset is excluded from cleanArgs") {
+  test("parseFlags --offset is excluded from positionals") {
     val f = parseFlags(List("members", "Foo", "--offset", "5"))
-    assert(!f.cleanArgs.contains("--offset"), "--offset should be excluded from cleanArgs")
-    assert(!f.cleanArgs.contains("5"), "5 (offset value) should be excluded from cleanArgs")
-    assert(f.cleanArgs.contains("Foo"), "Foo should remain in cleanArgs")
+    assert(!f.positional.contains("--offset"), "--offset should be excluded from positionals")
+    assert(!f.positional.contains("5"), "5 (offset value) should be excluded from positionals")
+    assert(f.positional.contains("Foo"), "Foo should remain in positionals")
   }
 
-  test("parseFlags --limit 0 is converted to Int.MaxValue") {
+  test("parseFlags --limit 0 is converted to Int.MaxValue in the context") {
     val f = parseFlags(List("members", "Foo", "--limit", "0"))
-    assertEquals(f.limit, Int.MaxValue)
+    assertEquals(flagsToContext(f, WorkspaceIndex.load(workspace), workspace).output.limit, Int.MaxValue)
   }
 
   // ── Orphan header suppression ──────────────────────────────────────────
 
   test("members --offset suppresses 'Defined in' header when all own members skipped") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val output = captureOut {
-      runCommand("members", List("PaymentServiceLive"),
-        CommandContext(idx = idx, workspace = workspace, limit = Int.MaxValue, offset = 100))
+      runCommand(
+        "members",
+        List("PaymentServiceLive"),
+        CommandContext(idx = idx, workspace = workspace, output = OutputOptions(limit = Int.MaxValue, offset = 100))
+      )
     }
     assert(!output.contains("Defined in"), s"Should NOT show 'Defined in' header when all members skipped: $output")
   }
 
   test("members --offset suppresses 'Inherited from' header when all inherited skipped") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val output = captureOut {
-      runCommand("members", List("UserServiceLive"),
-        CommandContext(idx = idx, workspace = workspace, limit = Int.MaxValue, offset = 100, inherited = true))
+      runCommand(
+        "members",
+        List("UserServiceLive"),
+        CommandContext(
+          idx = idx,
+          workspace = workspace,
+          output = OutputOptions(limit = Int.MaxValue, offset = 100),
+          members = MembersOptions(inherited = true)
+        )
+      )
     }
-    assert(!output.contains("Inherited from"), s"Should NOT show 'Inherited from' header when all inherited skipped: $output")
+    assert(
+      !output.contains("Inherited from"),
+      s"Should NOT show 'Inherited from' header when all inherited skipped: $output"
+    )
   }
 
   test("members --offset suppresses companion header when all companion members skipped") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val output = captureOut {
-      runCommand("members", List("Pipeline"),
-        CommandContext(idx = idx, workspace = workspace, limit = Int.MaxValue, offset = 100, verbose = true))
+      runCommand(
+        "members",
+        List("Pipeline"),
+        CommandContext(
+          idx = idx,
+          workspace = workspace,
+          output = OutputOptions(limit = Int.MaxValue, offset = 100, verbose = true)
+        )
+      )
     }
-    assert(!output.contains("Companion"), s"Should NOT show Companion header when all companion members skipped: $output")
+    assert(
+      !output.contains("Companion"),
+      s"Should NOT show Companion header when all companion members skipped: $output"
+    )
   }
 
   test("members --offset shows companion header when own members skipped but companion visible") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     // Database trait has 2 own members (query, insert) + companion with live
     // offset=2 skips own members, companion should still show
     val output = captureOut {
-      runCommand("members", List("Database"),
-        CommandContext(idx = idx, workspace = workspace, limit = Int.MaxValue, offset = 2, verbose = true))
+      runCommand(
+        "members",
+        List("Database"),
+        CommandContext(
+          idx = idx,
+          workspace = workspace,
+          output = OutputOptions(limit = Int.MaxValue, offset = 2, verbose = true)
+        )
+      )
     }
     val sections = output.split("Members of")
     // Find the trait section (not the object section)
@@ -2659,11 +3292,13 @@ class CliSuite extends ScalexTestBase:
   }
 
   test("members top-level header still shows when offset skips all content") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val output = captureOut {
-      runCommand("members", List("PaymentServiceLive"),
-        CommandContext(idx = idx, workspace = workspace, limit = Int.MaxValue, offset = 100))
+      runCommand(
+        "members",
+        List("PaymentServiceLive"),
+        CommandContext(idx = idx, workspace = workspace, output = OutputOptions(limit = Int.MaxValue, offset = 100))
+      )
     }
     // Top-level header identifies the matched type — always shown
     assert(output.contains("Members of"), s"Top-level 'Members of' header should always show: $output")
@@ -2672,23 +3307,38 @@ class CliSuite extends ScalexTestBase:
   // ── #221: better hub detection ────────────────────────────────────────
 
   test("overview --architecture hub types exclude stdlib-package-only types") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val output = captureOut {
-      runCommand("overview", Nil, CommandContext(idx = idx, workspace = workspace, limit = 20, architecture = true))
+      runCommand(
+        "overview",
+        Nil,
+        CommandContext(
+          idx = idx,
+          workspace = workspace,
+          output = OutputOptions(limit = 20),
+          overview = OverviewOptions(architecture = true)
+        )
+      )
     }
     // Serializable is a stdlib type — should not appear as hub type
-    assert(!output.contains("Serializable"),
-      s"Hub types should not include Serializable (stdlib): $output")
+    assert(!output.contains("Serializable"), s"Hub types should not include Serializable (stdlib): $output")
   }
 
   // ── #248: overview --concise ──────────────────────────────────────────
 
   test("overview --concise produces fixed-size output with summary header") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val output = captureOut {
-      runCommand("overview", Nil, CommandContext(idx = idx, workspace = workspace, limit = 20, concise = true))
+      runCommand(
+        "overview",
+        Nil,
+        CommandContext(
+          idx = idx,
+          workspace = workspace,
+          output = OutputOptions(limit = 20),
+          overview = OverviewOptions(concise = true)
+        )
+      )
     }
     assert(output.contains("Project:"), s"Should have compact Project: header: $output")
     assert(output.contains("Symbols:"), s"Should have inline Symbols: line: $output")
@@ -2698,20 +3348,36 @@ class CliSuite extends ScalexTestBase:
   }
 
   test("overview --concise implies architecture (shows hub types)") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val output = captureOut {
-      runCommand("overview", Nil, CommandContext(idx = idx, workspace = workspace, limit = 20, concise = true))
+      runCommand(
+        "overview",
+        Nil,
+        CommandContext(
+          idx = idx,
+          workspace = workspace,
+          output = OutputOptions(limit = 20),
+          overview = OverviewOptions(concise = true)
+        )
+      )
     }
     assert(output.contains("Hub types"), s"Concise should include hub types: $output")
     assert(!output.contains("Most extended"), s"Concise should NOT show Most extended: $output")
   }
 
   test("overview --concise JSON includes concise metadata") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val output = captureOut {
-      runCommand("overview", Nil, CommandContext(idx = idx, workspace = workspace, limit = 20, jsonOutput = true, concise = true))
+      runCommand(
+        "overview",
+        Nil,
+        CommandContext(
+          idx = idx,
+          workspace = workspace,
+          output = OutputOptions(limit = 20, jsonOutput = true),
+          overview = OverviewOptions(concise = true)
+        )
+      )
     }
     assert(output.contains("\"concise\":true"), s"JSON should include concise flag: $output")
     assert(output.contains("\"hubTypes\""), s"JSON should include hubTypes: $output")
@@ -2721,33 +3387,40 @@ class CliSuite extends ScalexTestBase:
   // ── #221: explain --related ───────────────────────────────────────────
 
   test("explain --related shows project-defined types from member signatures") {
-    val idx = WorkspaceIndex(workspace, needBlooms = true)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace, needBlooms = true)
     val output = captureOut {
-      runCommand("explain", List("UserService"),
-        CommandContext(idx = idx, workspace = workspace, related = true))
+      runCommand(
+        "explain",
+        List("UserService"),
+        CommandContext(idx = idx, workspace = workspace, members = MembersOptions(related = true))
+      )
     }
     assert(output.contains("Related types"), s"Should show Related types section: $output")
     assert(output.contains("User"), s"Should list User as related type: $output")
   }
 
   test("explain --related JSON includes relatedTypes array") {
-    val idx = WorkspaceIndex(workspace, needBlooms = true)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace, needBlooms = true)
     val output = captureOut {
-      runCommand("explain", List("UserService"),
-        CommandContext(idx = idx, workspace = workspace, related = true, jsonOutput = true))
+      runCommand(
+        "explain",
+        List("UserService"),
+        CommandContext(
+          idx = idx,
+          workspace = workspace,
+          output = OutputOptions(jsonOutput = true),
+          members = MembersOptions(related = true)
+        )
+      )
     }
     assert(output.contains("\"relatedTypes\""), s"JSON should contain relatedTypes: $output")
     assert(output.contains("\"User\""), s"relatedTypes should contain User: $output")
   }
 
   test("explain without --related does not show Related types") {
-    val idx = WorkspaceIndex(workspace, needBlooms = true)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace, needBlooms = true)
     val output = captureOut {
-      runCommand("explain", List("UserService"),
-        CommandContext(idx = idx, workspace = workspace))
+      runCommand("explain", List("UserService"), CommandContext(idx = idx, workspace = workspace))
     }
     assert(!output.contains("Related types"), s"Should not show Related types without flag: $output")
   }
@@ -2755,11 +3428,13 @@ class CliSuite extends ScalexTestBase:
   // ── #221: package --explain ───────────────────────────────────────────
 
   test("package --explain shows types with members and impl counts") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val output = captureOut {
-      runCommand("package", List("com.example"),
-        CommandContext(idx = idx, workspace = workspace, explainMode = true))
+      runCommand(
+        "package",
+        List("com.example"),
+        CommandContext(idx = idx, workspace = workspace, overview = OverviewOptions(explainMode = true))
+      )
     }
     assert(output.contains("types") && output.contains("symbols"), s"Should show type/symbol counts: $output")
     assert(output.contains("UserService"), s"Should list UserService: $output")
@@ -2767,11 +3442,18 @@ class CliSuite extends ScalexTestBase:
   }
 
   test("package --explain JSON structure") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val output = captureOut {
-      runCommand("package", List("com.example"),
-        CommandContext(idx = idx, workspace = workspace, explainMode = true, jsonOutput = true))
+      runCommand(
+        "package",
+        List("com.example"),
+        CommandContext(
+          idx = idx,
+          workspace = workspace,
+          output = OutputOptions(jsonOutput = true),
+          overview = OverviewOptions(explainMode = true)
+        )
+      )
     }
     assert(output.contains("\"package\":\"com.example\""), s"JSON should have package: $output")
     assert(output.contains("\"totalSymbols\""), s"JSON should have totalSymbols: $output")
@@ -2783,11 +3465,13 @@ class CliSuite extends ScalexTestBase:
   // ── #228: explain --related stdlib false positives ──────────────────────
 
   test("#228: explain --related should NOT resolve stdlib names to unrelated project types") {
-    val idx = WorkspaceIndex(workspace, needBlooms = true)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace, needBlooms = true)
     val output = captureOut {
-      runCommand("explain", List("UserService"),
-        CommandContext(idx = idx, workspace = workspace, related = true))
+      runCommand(
+        "explain",
+        List("UserService"),
+        CommandContext(idx = idx, workspace = workspace, members = MembersOptions(related = true))
+      )
     }
     // UserService has members: findUser(id: String): Option[User], createUser(name: String): User
     assert(output.contains("Related types"), s"Should show Related types section: $output")
@@ -2800,43 +3484,47 @@ class CliSuite extends ScalexTestBase:
   // ── #239: Owner.Member dotted syntax for nested classes ──────────────
 
   test("#239: members Outer.Inner resolves nested class") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val output = captureOut {
-      runCommand("members", List("Outer.Inner"),
-        CommandContext(idx = idx, workspace = workspace, limit = 50, verbose = true))
+      runCommand(
+        "members",
+        List("Outer.Inner"),
+        CommandContext(idx = idx, workspace = workspace, output = OutputOptions(limit = 50, verbose = true))
+      )
     }
     assert(output.contains("hello"), s"Should find hello member via Outer.Inner: $output")
     assert(output.contains("greet"), s"Should find greet member via Outer.Inner: $output")
   }
 
   test("#239: hierarchy Outer.Inner resolves nested class") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val output = captureOut {
-      runCommand("hierarchy", List("Outer.Inner"),
-        CommandContext(idx = idx, workspace = workspace, maxDepth = 5, goUp = true, goDown = true))
+      runCommand(
+        "hierarchy",
+        List("Outer.Inner"),
+        CommandContext(
+          idx = idx,
+          workspace = workspace,
+          hierarchy = HierarchyOptions(maxDepth = 5, goUp = true, goDown = true)
+        )
+      )
     }
     assert(output.contains("Inner"), s"Should find Inner in hierarchy: $output")
     assert(output.contains("AnotherInner"), s"Should find AnotherInner as child: $output")
   }
 
   test("#239: impl Outer.Inner resolves nested class") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val output = captureOut {
-      runCommand("impl", List("Outer.Inner"),
-        CommandContext(idx = idx, workspace = workspace))
+      runCommand("impl", List("Outer.Inner"), CommandContext(idx = idx, workspace = workspace))
     }
     assert(output.contains("AnotherInner"), s"Should find AnotherInner via Outer.Inner: $output")
   }
 
   test("#239: def Outer.Inner does not duplicate results") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val output = captureOut {
-      runCommand("def", List("Outer.Inner"),
-        CommandContext(idx = idx, workspace = workspace))
+      runCommand("def", List("Outer.Inner"), CommandContext(idx = idx, workspace = workspace))
     }
     // Count occurrences of "Inner" as a definition (not substring of other words)
     val innerLines = output.linesIterator.filter(l => l.contains("class") && l.contains("Inner")).toList
@@ -2845,11 +3533,13 @@ class CliSuite extends ScalexTestBase:
   }
 
   test("#239: explain Outer.Inner includes members") {
-    val idx = WorkspaceIndex(workspace, needBlooms = true)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace, needBlooms = true)
     val output = captureOut {
-      runCommand("explain", List("Outer.Inner"),
-        CommandContext(idx = idx, workspace = workspace, implLimit = 10))
+      runCommand(
+        "explain",
+        List("Outer.Inner"),
+        CommandContext(idx = idx, workspace = workspace, members = MembersOptions(implLimit = 10))
+      )
     }
     assert(output.contains("Inner"), s"Should find Inner: $output")
     assert(output.contains("hello"), s"Should show hello member: $output")
@@ -2857,32 +3547,30 @@ class CliSuite extends ScalexTestBase:
   }
 
   test("#239: body --in Outer.Inner resolves nested class") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val output = captureOut {
-      runCommand("body", List("hello"),
-        CommandContext(idx = idx, workspace = workspace, inOwner = Some("Outer.Inner")))
+      runCommand(
+        "body",
+        List("hello"),
+        CommandContext(idx = idx, workspace = workspace, search = SearchOptions(inOwner = Some("Outer.Inner")))
+      )
     }
     assert(output.contains("world"), s"Should find hello body via --in Outer.Inner: $output")
   }
 
   test("#239: impl Outer.Inner finds cross-file implementors") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val output = captureOut {
-      runCommand("impl", List("Outer.Inner"),
-        CommandContext(idx = idx, workspace = workspace))
+      runCommand("impl", List("Outer.Inner"), CommandContext(idx = idx, workspace = workspace))
     }
     assert(output.contains("AnotherInner"), s"Should find same-file impl: $output")
     assert(output.contains("CrossFileImpl"), s"Should find cross-file impl: $output")
   }
 
   test("#239: impl Unknown.Inner returns not-found instead of all Inner impls") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val output = captureOut {
-      runCommand("impl", List("Unknown.Inner"),
-        CommandContext(idx = idx, workspace = workspace))
+      runCommand("impl", List("Unknown.Inner"), CommandContext(idx = idx, workspace = workspace))
     }
     assert(output.contains("No implementations"), s"Should report not-found for Unknown.Inner: $output")
   }
@@ -2891,73 +3579,87 @@ class CliSuite extends ScalexTestBase:
 
   test("#252: parseFlags parses --max-output flag") {
     val f = parseFlags(List("overview", "--max-output", "500"))
-    assertEquals(f.maxOutput, 500)
+    assertEquals(f(MaxOutputFlag), 500)
   }
 
   test("#252: parseFlags --max-output defaults to 0") {
     val f = parseFlags(List("overview"))
-    assertEquals(f.maxOutput, 0)
+    assertEquals(f(MaxOutputFlag), 0)
   }
 
-  test("#252: parseFlags --max-output is excluded from cleanArgs") {
+  test("#252: parseFlags --max-output is excluded from positionals") {
     val f = parseFlags(List("overview", "--max-output", "500"))
-    assert(!f.cleanArgs.contains("--max-output"), s"cleanArgs should not contain --max-output: ${f.cleanArgs}")
-    assert(!f.cleanArgs.contains("500"), s"cleanArgs should not contain 500: ${f.cleanArgs}")
+    assert(!f.positional.contains("--max-output"), s"positionals should not contain --max-output: ${f.positional}")
+    assert(!f.positional.contains("500"), s"positionals should not contain 500: ${f.positional}")
   }
 
   test("#252: parseFlags parses --in-package flag") {
     val f = parseFlags(List("refs", "Foo", "--in-package", "com.example"))
-    assertEquals(f.inPackageFilter, Some("com.example"))
+    assertEquals(f(InPackageFlag), Some("com.example"))
   }
 
   test("#252: parseFlags --in-package defaults to None") {
     val f = parseFlags(List("refs", "Foo"))
-    assertEquals(f.inPackageFilter, None)
+    assertEquals(f(InPackageFlag), None)
   }
 
-  test("#252: parseFlags --in-package is excluded from cleanArgs") {
+  test("#252: parseFlags --in-package is excluded from positionals") {
     val f = parseFlags(List("refs", "Foo", "--in-package", "com.example"))
-    assert(!f.cleanArgs.contains("--in-package"), s"cleanArgs should not contain --in-package: ${f.cleanArgs}")
-    assert(!f.cleanArgs.contains("com.example"), s"cleanArgs should not contain com.example: ${f.cleanArgs}")
-    assert(f.cleanArgs.contains("Foo"), s"cleanArgs should still contain Foo: ${f.cleanArgs}")
+    assert(!f.positional.contains("--in-package"), s"positionals should not contain --in-package: ${f.positional}")
+    assert(!f.positional.contains("com.example"), s"positionals should not contain com.example: ${f.positional}")
+    assert(f.positional.contains("Foo"), s"positionals should still contain Foo: ${f.positional}")
   }
 
   // ── #252: --max-output truncation ─────────────────────────────────────
 
   test("#252: --max-output truncates large output") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val output = captureOut {
-      runCommand("overview", Nil, CommandContext(idx = idx, workspace = workspace, limit = 50, maxOutput = 100))
+      runCommand(
+        "overview",
+        Nil,
+        CommandContext(idx = idx, workspace = workspace, output = OutputOptions(limit = 50, maxOutput = 100))
+      )
     }
     assert(output.contains("output truncated at 100 chars"), s"Should contain truncation hint: $output")
     // The truncated content + hint should be present but total content before hint should be ≤ budget + one line
     val hintIdx = output.indexOf("(output truncated")
     assert(hintIdx > 0, s"Truncation hint should be present: $output")
     val contentBeforeHint = output.substring(0, hintIdx).stripTrailing()
-    assert(contentBeforeHint.length <= 100, s"Content before hint should be ≤ 100 chars, got ${contentBeforeHint.length}")
+    assert(
+      contentBeforeHint.length <= 100,
+      s"Content before hint should be ≤ 100 chars, got ${contentBeforeHint.length}"
+    )
   }
 
   test("#252: --max-output 0 means unlimited (no truncation)") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val output = captureOut {
-      runCommand("overview", Nil, CommandContext(idx = idx, workspace = workspace, limit = 50, maxOutput = 0))
+      runCommand(
+        "overview",
+        Nil,
+        CommandContext(idx = idx, workspace = workspace, output = OutputOptions(limit = 50, maxOutput = 0))
+      )
     }
     assert(!output.contains("output truncated"), s"Should not truncate when maxOutput=0: $output")
   }
 
   test("#252: --max-output truncates at line boundary") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val output = captureOut {
-      runCommand("overview", Nil, CommandContext(idx = idx, workspace = workspace, limit = 50, maxOutput = 80))
+      runCommand(
+        "overview",
+        Nil,
+        CommandContext(idx = idx, workspace = workspace, output = OutputOptions(limit = 50, maxOutput = 80))
+      )
     }
     val hintIdx = output.indexOf("(output truncated")
     assert(hintIdx > 0, s"Should be truncated: $output")
     // The hint should start at a line boundary (preceded by a newline)
-    assert(hintIdx > 0 && output.charAt(hintIdx - 1) == '\n',
-      s"Truncation hint should be on its own line: ${output.substring(math.max(0, hintIdx - 5), hintIdx + 10)}")
+    assert(
+      hintIdx > 0 && output.charAt(hintIdx - 1) == '\n',
+      s"Truncation hint should be on its own line: ${output.substring(math.max(0, hintIdx - 5), hintIdx + 10)}"
+    )
     // Content before hint should not contain partial lines (last content line should be complete)
     val contentBeforeHint = output.substring(0, hintIdx)
     val contentLines = contentBeforeHint.split("\n").filter(_.nonEmpty)
@@ -2966,20 +3668,26 @@ class CliSuite extends ScalexTestBase:
   }
 
   test("#252: --max-output hint includes --in-package") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val output = captureOut {
-      runCommand("overview", Nil, CommandContext(idx = idx, workspace = workspace, limit = 50, maxOutput = 50))
+      runCommand(
+        "overview",
+        Nil,
+        CommandContext(idx = idx, workspace = workspace, output = OutputOptions(limit = 50, maxOutput = 50))
+      )
     }
     assert(output.contains("--in-package"), s"Truncation hint should mention --in-package: $output")
   }
 
   test("#252: --max-output does not truncate small output") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     // packages output is small — should not be truncated even with a reasonable budget
     val output = captureOut {
-      runCommand("packages", Nil, CommandContext(idx = idx, workspace = workspace, maxOutput = 5000))
+      runCommand(
+        "packages",
+        Nil,
+        CommandContext(idx = idx, workspace = workspace, output = OutputOptions(maxOutput = 5000))
+      )
     }
     assert(!output.contains("output truncated"), s"Small output should not be truncated: $output")
     assert(output.contains("com.example"), s"Should contain package: $output")
@@ -2988,22 +3696,36 @@ class CliSuite extends ScalexTestBase:
   // ── #252: --in-package filterSymbols ───────────────────────────────────
 
   test("#252: --in-package filters symbols by package prefix") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val output = captureOut {
-      runCommand("search", List("Registry"), CommandContext(idx = idx, workspace = workspace, limit = 50,
-        inPackageFilter = Some("com.example")))
+      runCommand(
+        "search",
+        List("Registry"),
+        CommandContext(
+          idx = idx,
+          workspace = workspace,
+          filters = FiltersOptions(inPackageFilter = Some("com.example")),
+          output = OutputOptions(limit = 50)
+        )
+      )
     }
     assert(output.contains("com.example"), s"Should contain com.example: $output")
     assert(!output.contains("com.other"), s"Should not contain com.other: $output")
   }
 
   test("#252: --in-package filters impl results") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val output = captureOut {
-      runCommand("impl", List("UserService"), CommandContext(idx = idx, workspace = workspace, limit = 50,
-        inPackageFilter = Some("com.example")))
+      runCommand(
+        "impl",
+        List("UserService"),
+        CommandContext(
+          idx = idx,
+          workspace = workspace,
+          filters = FiltersOptions(inPackageFilter = Some("com.example")),
+          output = OutputOptions(limit = 50)
+        )
+      )
     }
     assert(output.contains("com.example"), s"Should contain com.example impls: $output")
     // Only com.example implementations should appear
@@ -3011,41 +3733,76 @@ class CliSuite extends ScalexTestBase:
   }
 
   test("#252: --in-package with no matches returns empty") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val output = captureOut {
-      runCommand("search", List("UserService"), CommandContext(idx = idx, workspace = workspace, limit = 50,
-        inPackageFilter = Some("com.nonexistent")))
+      runCommand(
+        "search",
+        List("UserService"),
+        CommandContext(
+          idx = idx,
+          workspace = workspace,
+          filters = FiltersOptions(inPackageFilter = Some("com.nonexistent")),
+          output = OutputOptions(limit = 50)
+        )
+      )
     }
     // Should find 0 symbols
-    assert(output.contains("0 symbols") || output.contains("No "), s"Should find nothing in nonexistent package: $output")
+    assert(
+      output.contains("0 symbols") || output.contains("No "),
+      s"Should find nothing in nonexistent package: $output"
+    )
   }
 
   test("#252: --in-package filters with prefix match (sub-packages included)") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     // com.example should include com.example.* sub-packages
     val output = captureOut {
-      runCommand("search", List("Helper"), CommandContext(idx = idx, workspace = workspace, limit = 50,
-        inPackageFilter = Some("com.other")))
+      runCommand(
+        "search",
+        List("Helper"),
+        CommandContext(
+          idx = idx,
+          workspace = workspace,
+          filters = FiltersOptions(inPackageFilter = Some("com.other")),
+          output = OutputOptions(limit = 50)
+        )
+      )
     }
     assert(output.contains("Helper"), s"Should find Helper in com.other: $output")
     val output2 = captureOut {
-      runCommand("search", List("Helper"), CommandContext(idx = idx, workspace = workspace, limit = 50,
-        inPackageFilter = Some("com.example")))
+      runCommand(
+        "search",
+        List("Helper"),
+        CommandContext(
+          idx = idx,
+          workspace = workspace,
+          filters = FiltersOptions(inPackageFilter = Some("com.example")),
+          output = OutputOptions(limit = 50)
+        )
+      )
     }
-    assert(!output2.contains("Helper") || output2.contains("0 symbols"),
-      s"Should not find Helper in com.example: $output2")
+    assert(
+      !output2.contains("Helper") || output2.contains("0 symbols"),
+      s"Should not find Helper in com.example: $output2"
+    )
   }
 
   // ── #252: --in-package filterRefs ──────────────────────────────────────
 
   test("#252: --in-package filters refs by file package") {
-    val idx = WorkspaceIndex(workspace, needBlooms = true)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace, needBlooms = true)
     val output = captureOut {
-      runCommand("refs", List("UserService"), CommandContext(idx = idx, workspace = workspace, limit = 50,
-        categorize = false, inPackageFilter = Some("com.client")))
+      runCommand(
+        "refs",
+        List("UserService"),
+        CommandContext(
+          idx = idx,
+          workspace = workspace,
+          filters = FiltersOptions(inPackageFilter = Some("com.client")),
+          output = OutputOptions(limit = 50),
+          references = ReferencesOptions(categorize = false)
+        )
+      )
     }
     // Should only show refs from com.client package files
     assert(output.contains("Client"), s"Should contain client refs: $output")
@@ -3055,14 +3812,22 @@ class CliSuite extends ScalexTestBase:
   }
 
   test("#252: --in-package refs keeps refs from unindexed files") {
-    val idx = WorkspaceIndex(workspace, needBlooms = true)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace, needBlooms = true)
     // With --in-package set, refs from files with unknown package should be kept (conservative)
     // This is hard to test directly since all files are indexed, but we verify the filter
     // doesn't crash and returns results for known packages
     val output = captureOut {
-      runCommand("refs", List("UserService"), CommandContext(idx = idx, workspace = workspace, limit = 50,
-        categorize = false, inPackageFilter = Some("com.example")))
+      runCommand(
+        "refs",
+        List("UserService"),
+        CommandContext(
+          idx = idx,
+          workspace = workspace,
+          filters = FiltersOptions(inPackageFilter = Some("com.example")),
+          output = OutputOptions(limit = 50),
+          references = ReferencesOptions(categorize = false)
+        )
+      )
     }
     assert(output.contains("UserService"), s"Should find refs in com.example: $output")
   }
@@ -3070,522 +3835,30 @@ class CliSuite extends ScalexTestBase:
   // ── #252: flagsToContext wiring ────────────────────────────────────────
 
   test("#252: flagsToContext wires maxOutput and inPackageFilter") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
-    val f = ParsedFlags(maxOutput = 1000, inPackageFilter = Some("com.test"))
+    val idx = WorkspaceIndex.load(workspace)
+    val f = parseFlags(List("--max-output", "1000", "--in-package", "com.test"))
     val ctx = flagsToContext(f, idx, workspace)
-    assertEquals(ctx.maxOutput, 1000)
-    assertEquals(ctx.inPackageFilter, Some("com.test"))
+    assertEquals(ctx.output.maxOutput, 1000)
+    assertEquals(ctx.filters.inPackageFilter, Some("com.test"))
   }
 
   // ── #252: filePackageByPath ────────────────────────────────────────────
 
   test("#252: filePackageByPath returns package for known file") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val pkg = idx.filePackageByPath("src/main/scala/com/example/UserService.scala")
     assertEquals(pkg, Some("com.example"))
   }
 
   test("#252: filePackageByPath returns None for unknown file") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     val pkg = idx.filePackageByPath("nonexistent/File.scala")
     assertEquals(pkg, None)
   }
 
   test("#252: filePackageByPath returns package for different packages") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
+    val idx = WorkspaceIndex.load(workspace)
     assertEquals(idx.filePackageByPath("src/main/scala/com/other/Helper.scala"), Some("com.other"))
     assertEquals(idx.filePackageByPath("src/main/scala/com/client/ExplicitClient.scala"), Some("com.client"))
   }
-
-  // ── scaffold impl ──────────────────────────────────────────────────────
-
-  test("scaffold impl: shows unimplemented abstract members") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
-    val ctx = CommandContext(idx = idx, workspace = workspace)
-    val result = cmdScaffold(List("impl", "RoleProcessor"), ctx)
-    result match
-      case r: CmdResult.ScaffoldImpl =>
-        assertEquals(r.targetName, "RoleProcessor")
-        assert(r.unimplemented.nonEmpty, "RoleProcessor should have unimplemented members from Processor")
-        val allMembers = r.unimplemented.flatMap(_.members)
-        val names = allMembers.map(_.name)
-        assert(names.contains("process"), s"Should include abstract 'process': $names")
-        assert(!names.contains("validate"), s"Should not include concrete 'validate': $names")
-      case other => fail(s"Expected ScaffoldImpl but got: $other")
-  }
-
-  test("scaffold impl: fully implemented class shows empty") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
-    val ctx = CommandContext(idx = idx, workspace = workspace)
-    val result = cmdScaffold(List("impl", "UserServiceLive"), ctx)
-    result match
-      case r: CmdResult.ScaffoldImpl =>
-        assertEquals(r.targetName, "UserServiceLive")
-        assert(r.unimplemented.isEmpty, s"UserServiceLive implements everything: ${r.unimplemented}")
-      case other => fail(s"Expected ScaffoldImpl but got: $other")
-  }
-
-  test("scaffold impl: text output includes override stubs") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
-    val ctx = CommandContext(idx = idx, workspace = workspace)
-    val output = captureOut {
-      renderWithBudget(cmdScaffold(List("impl", "RoleProcessor"), ctx), ctx)
-    }
-    assert(output.contains("override def process"), s"Should contain override stub:\n$output")
-    assert(output.contains("= ???"), s"Should contain ??? placeholder:\n$output")
-    assert(output.contains("Unimplemented members from Processor"), s"Should show parent name:\n$output")
-    assert(output.contains("Insert into RoleProcessor"), s"Should show target class:\n$output")
-  }
-
-  test("scaffold impl: all-implemented text output says so") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
-    val ctx = CommandContext(idx = idx, workspace = workspace)
-    val output = captureOut {
-      renderWithBudget(cmdScaffold(List("impl", "UserServiceLive"), ctx), ctx)
-    }
-    assert(output.contains("all abstract members are implemented"), s"Should say all implemented:\n$output")
-  }
-
-  test("scaffold impl: JSON output has stubs array and code array") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
-    val ctx = CommandContext(idx = idx, workspace = workspace, jsonOutput = true)
-    val output = captureOut {
-      renderWithBudget(cmdScaffold(List("impl", "RoleProcessor"), ctx), ctx)
-    }
-    assert(output.contains(""""target":"RoleProcessor""""), s"Should have target:\n$output")
-    assert(output.contains(""""stubs":["""), s"Should have stubs array:\n$output")
-    assert(output.contains(""""code":["""), s"Should have code array:\n$output")
-    assert(output.contains(""""from":"Processor""""), s"Should reference parent:\n$output")
-  }
-
-  test("scaffold impl: not found shows suggestions") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
-    val ctx = CommandContext(idx = idx, workspace = workspace)
-    val result = cmdScaffold(List("impl", "NonExistent"), ctx)
-    result match
-      case r: CmdResult.NotFound =>
-        assert(r.message.contains("NonExistent"))
-      case other => fail(s"Expected NotFound but got: $other")
-  }
-
-  test("scaffold impl: walks transitive parent chain") {
-    // PaymentServiceLive extends PaymentService (which has abstract members)
-    // PaymentServiceLive implements everything so should be empty
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
-    val ctx = CommandContext(idx = idx, workspace = workspace)
-    val result = cmdScaffold(List("impl", "PaymentServiceLive"), ctx)
-    result match
-      case r: CmdResult.ScaffoldImpl =>
-        assert(r.unimplemented.isEmpty, s"PaymentServiceLive implements all: ${r.unimplemented}")
-      case other => fail(s"Expected ScaffoldImpl but got: $other")
-  }
-
-  test("scaffold impl: GenericProcessor has unimplemented process") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
-    val ctx = CommandContext(idx = idx, workspace = workspace)
-    val result = cmdScaffold(List("impl", "GenericProcessor"), ctx)
-    result match
-      case r: CmdResult.ScaffoldImpl =>
-        val names = r.unimplemented.flatMap(_.members).map(_.name)
-        assert(names.contains("process"), s"GenericProcessor should need process: $names")
-      case other => fail(s"Expected ScaffoldImpl but got: $other")
-  }
-
-  test("scaffold impl: usage error without class name") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
-    val ctx = CommandContext(idx = idx, workspace = workspace)
-    val result = cmdScaffold(List("impl"), ctx)
-    result match
-      case r: CmdResult.UsageError => assert(r.message.contains("Usage"))
-      case other => fail(s"Expected UsageError but got: $other")
-  }
-
-  // ── scaffold test ──────────────────────────────────────────────────────
-
-  test("scaffold test: generates munit test skeleton") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
-    val ctx = CommandContext(idx = idx, workspace = workspace)
-    val output = captureOut {
-      renderWithBudget(cmdScaffold(List("test", "UserService"), ctx), ctx)
-    }
-    assert(output.contains("class UserServiceSpec extends munit.FunSuite:"), s"Should have munit class:\n$output")
-    assert(output.contains("""test("findUser should ..."):"""), s"Should have findUser test:\n$output")
-    assert(output.contains("""test("createUser should ..."):"""), s"Should have createUser test:\n$output")
-  }
-
-  test("scaffold test: scalatest framework") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
-    val ctx = CommandContext(idx = idx, workspace = workspace, framework = "scalatest")
-    val output = captureOut {
-      renderWithBudget(cmdScaffold(List("test", "UserService"), ctx), ctx)
-    }
-    assert(output.contains("extends AnyFlatSpec with Matchers"), s"Should use scalatest:\n$output")
-    assert(output.contains(""""UserService" should "findUser""""), s"Should have scalatest format:\n$output")
-  }
-
-  test("scaffold test: zio-test framework") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
-    val ctx = CommandContext(idx = idx, workspace = workspace, framework = "zio-test")
-    val output = captureOut {
-      renderWithBudget(cmdScaffold(List("test", "UserService"), ctx), ctx)
-    }
-    assert(output.contains("extends ZIOSpecDefault:"), s"Should use zio-test:\n$output")
-    assert(output.contains("""suite("UserService")"""), s"Should have suite:\n$output")
-    assert(output.contains("""test("findUser should ...")"""), s"Should have test:\n$output")
-  }
-
-  test("scaffold test: JSON output") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
-    val ctx = CommandContext(idx = idx, workspace = workspace, jsonOutput = true)
-    val output = captureOut {
-      renderWithBudget(cmdScaffold(List("test", "UserService"), ctx), ctx)
-    }
-    assert(output.contains(""""target":"UserService""""), s"Should have target:\n$output")
-    assert(output.contains(""""framework":"munit""""), s"Should have framework:\n$output")
-    assert(output.contains(""""members":["""), s"Should have members array:\n$output")
-  }
-
-  test("scaffold test: returns only def members") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
-    val ctx = CommandContext(idx = idx, workspace = workspace)
-    val result = cmdScaffold(List("test", "PaymentServiceLive"), ctx)
-    result match
-      case r: CmdResult.ScaffoldTest =>
-        val kinds = r.publicMembers.map(_.kind).toSet
-        assertEquals(kinds, Set(SymbolKind.Def), s"Should only have Def members, got: ${r.publicMembers}")
-      case other => fail(s"Expected ScaffoldTest but got: $other")
-  }
-
-  test("scaffold test: not found shows suggestions") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
-    val ctx = CommandContext(idx = idx, workspace = workspace)
-    val result = cmdScaffold(List("test", "DoesNotExist"), ctx)
-    result match
-      case r: CmdResult.NotFound => assert(r.message.contains("DoesNotExist"))
-      case other => fail(s"Expected NotFound but got: $other")
-  }
-
-  test("scaffold: usage error without subcommand") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
-    val ctx = CommandContext(idx = idx, workspace = workspace)
-    val result = cmdScaffold(Nil, ctx)
-    result match
-      case r: CmdResult.UsageError => assert(r.message.contains("Usage"))
-      case other => fail(s"Expected UsageError but got: $other")
-  }
-
-  test("scaffold: usage error with unknown subcommand") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
-    val ctx = CommandContext(idx = idx, workspace = workspace)
-    val result = cmdScaffold(List("unknown", "Foo"), ctx)
-    result match
-      case r: CmdResult.UsageError => assert(r.message.contains("Usage"))
-      case other => fail(s"Expected UsageError but got: $other")
-  }
-
-  test("scaffold impl: type parameter substitution — RoleProcessor") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
-    val ctx = CommandContext(idx = idx, workspace = workspace)
-    val result = cmdScaffold(List("impl", "RoleProcessor"), ctx)
-    result match
-      case r: CmdResult.ScaffoldImpl =>
-        val processMember = r.unimplemented.flatMap(_.members).find(_.name == "process")
-        assert(processMember.isDefined, "Should find process member")
-        val sig = processMember.get.signature
-        assert(sig.contains("Role"), s"Should substitute T → Role: $sig")
-        assert(!sig.matches(".*\\bT\\b.*"), s"Should not contain bare T: $sig")
-      case other => fail(s"Expected ScaffoldImpl but got: $other")
-  }
-
-  test("scaffold impl: type parameter substitution — GenericProcessor keeps type param") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
-    val ctx = CommandContext(idx = idx, workspace = workspace)
-    val result = cmdScaffold(List("impl", "GenericProcessor"), ctx)
-    result match
-      case r: CmdResult.ScaffoldImpl =>
-        val processMember = r.unimplemented.flatMap(_.members).find(_.name == "process")
-        assert(processMember.isDefined, "Should find process member")
-        val sig = processMember.get.signature
-        // GenericProcessor[A] extends Processor[A], so T → A
-        assert(sig.contains("A"), s"Should substitute T → A: $sig")
-      case other => fail(s"Expected ScaffoldImpl but got: $other")
-  }
-
-  test("scaffold impl: type substitution in rendered output") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
-    val ctx = CommandContext(idx = idx, workspace = workspace)
-    val output = captureOut {
-      renderWithBudget(cmdScaffold(List("impl", "RoleProcessor"), ctx), ctx)
-    }
-    assert(output.contains("Role"), s"Output should contain substituted type Role:\n$output")
-    assert(!output.matches("(?s).*\\bitem: T\\b.*"), s"Output should not contain 'item: T':\n$output")
-  }
-
-  test("scaffold impl: NestedTypeArgProcessor substitutes Map[String, User]") {
-    val idx = WorkspaceIndex(workspace)
-    idx.index()
-    val ctx = CommandContext(idx = idx, workspace = workspace)
-    val result = cmdScaffold(List("impl", "NestedTypeArgProcessor"), ctx)
-    result match
-      case r: CmdResult.ScaffoldImpl =>
-        val processMember = r.unimplemented.flatMap(_.members).find(_.name == "process")
-        assert(processMember.isDefined, "Should find process member")
-        val sig = processMember.get.signature
-        assert(sig.contains("Map[String, User]"), s"Should substitute T → Map[String, User]: $sig")
-      case other => fail(s"Expected ScaffoldImpl but got: $other")
-  }
-
-  test("extractParentTypeArgs: simple type arg") {
-    val file = workspace.resolve("src/main/scala/com/example/Mixins.scala")
-    val args = extractParentTypeArgs(file, "RoleProcessor", "Processor")
-    assertEquals(args, List("Role"))
-  }
-
-  test("extractParentTypeArgs: generic forwarding") {
-    val file = workspace.resolve("src/main/scala/com/example/Mixins.scala")
-    val args = extractParentTypeArgs(file, "GenericProcessor", "Processor")
-    assertEquals(args, List("A"))
-  }
-
-  test("extractParentTypeArgs: nested type arg") {
-    val file = workspace.resolve("src/main/scala/com/example/Mixins.scala")
-    val args = extractParentTypeArgs(file, "NestedTypeArgProcessor", "Processor")
-    assertEquals(args, List("Map[String, User]"))
-  }
-
-  test("extractParentTypeArgs: no type args") {
-    val file = workspace.resolve("src/main/scala/com/example/UserService.scala")
-    val args = extractParentTypeArgs(file, "UserServiceLive", "UserService")
-    assertEquals(args, Nil)
-  }
-
-  test("extractTypeParamNames: trait with type param") {
-    val file = workspace.resolve("src/main/scala/com/example/Mixins.scala")
-    val params = extractTypeParamNames(file, "Processor")
-    assertEquals(params, List("T"))
-  }
-
-  test("extractTypeParamNames: class with type param") {
-    val file = workspace.resolve("src/main/scala/com/example/Mixins.scala")
-    val params = extractTypeParamNames(file, "GenericProcessor")
-    assertEquals(params, List("A"))
-  }
-
-  test("extractTypeParamNames: no type params") {
-    val file = workspace.resolve("src/main/scala/com/example/UserService.scala")
-    val params = extractTypeParamNames(file, "UserService")
-    assertEquals(params, Nil)
-  }
-
-  test("parseFlags: --framework flag") {
-    val f1 = parseFlags(List("--framework", "scalatest"))
-    assertEquals(f1.framework, "scalatest")
-    val f2 = parseFlags(List("--framework", "zio-test"))
-    assertEquals(f2.framework, "zio-test")
-    val f3 = parseFlags(Nil)
-    assertEquals(f3.framework, "munit")
-  }
-
-  // ── rename ────────────────────────────────────────────────────────────
-
-  test("rename: finds edits across files") {
-    val idx = WorkspaceIndex(workspace, needBlooms = true)
-    idx.index()
-    val ctx = CommandContext(idx = idx, workspace = workspace)
-    val result = cmdRename(List("UserService", "AccountService"), ctx)
-    result match
-      case r: CmdResult.RenameResult =>
-        assertEquals(r.oldName, "UserService")
-        assertEquals(r.newName, "AccountService")
-        assert(r.edits.nonEmpty, "Should find edits for UserService")
-        // Should include definition and import categories
-        val categories = r.edits.map(_.category).toSet
-        assert(categories.contains("definition"), s"Should include definition edits: $categories")
-        // At least some edits should contain the new name
-        assert(r.edits.exists(_.newLine.contains("AccountService")),
-          s"At least some edits should contain AccountService")
-      case other => fail(s"Expected RenameResult but got: $other")
-  }
-
-  test("rename: does not rename substrings") {
-    val idx = WorkspaceIndex(workspace, needBlooms = true)
-    idx.index()
-    val ctx = CommandContext(idx = idx, workspace = workspace)
-    val result = cmdRename(List("UserService", "XService"), ctx)
-    result match
-      case r: CmdResult.RenameResult =>
-        // "UserServiceLive" should NOT be affected — it's a different symbol
-        r.edits.foreach { e =>
-          assert(!e.newLine.contains("XServiceLive"), s"Should not rename substring in UserServiceLive: ${e.newLine}")
-        }
-      case other => fail(s"Expected RenameResult but got: $other")
-  }
-
-  test("rename: JSON output") {
-    val idx = WorkspaceIndex(workspace, needBlooms = true)
-    idx.index()
-    val ctx = CommandContext(idx = idx, workspace = workspace, jsonOutput = true)
-    val output = captureOut {
-      renderWithBudget(cmdRename(List("Database", "DataStore"), ctx), ctx)
-    }
-    assert(output.contains(""""from":"Database""""), s"Should have from:\n$output")
-    assert(output.contains(""""to":"DataStore""""), s"Should have to:\n$output")
-    assert(output.contains(""""edits":["""), s"Should have edits:\n$output")
-  }
-
-  test("rename: text output shows diff") {
-    val idx = WorkspaceIndex(workspace, needBlooms = true)
-    idx.index()
-    val ctx = CommandContext(idx = idx, workspace = workspace)
-    val output = captureOut {
-      renderWithBudget(cmdRename(List("Database", "DataStore"), ctx), ctx)
-    }
-    assert(output.contains("→"), s"Should show diff arrow:\n$output")
-    assert(output.contains("DataStore"), s"Should show new name:\n$output")
-  }
-
-  test("rename: not found") {
-    val idx = WorkspaceIndex(workspace, needBlooms = true)
-    idx.index()
-    val ctx = CommandContext(idx = idx, workspace = workspace)
-    val result = cmdRename(List("NonExistent", "NewName"), ctx)
-    result match
-      case _: CmdResult.NotFound => () // expected
-      case other => fail(s"Expected NotFound but got: $other")
-  }
-
-  test("rename: usage error without args") {
-    val idx = WorkspaceIndex(workspace, needBlooms = true)
-    idx.index()
-    val ctx = CommandContext(idx = idx, workspace = workspace)
-    val result = cmdRename(Nil, ctx)
-    result match
-      case _: CmdResult.UsageError => () // expected
-      case other => fail(s"Expected UsageError but got: $other")
-  }
-
-  // ── unused ────────────────────────────────────────────────────────────
-
-  test("unused: finds symbols with no external refs") {
-    val idx = WorkspaceIndex(workspace, needBlooms = true)
-    idx.index()
-    val ctx = CommandContext(idx = idx, workspace = workspace)
-    val result = cmdUnused(Nil, ctx)
-    result match
-      case r: CmdResult.SymbolList =>
-        // Some symbols should be unused (e.g., types only used in their own file)
-        // At minimum, result should be a valid SymbolList
-        assert(r.header.contains("unused"), s"Header should mention unused: ${r.header}")
-      case other => fail(s"Expected SymbolList but got: $other")
-  }
-
-  test("unused: scopes to package") {
-    val idx = WorkspaceIndex(workspace, needBlooms = true)
-    idx.index()
-    val ctx = CommandContext(idx = idx, workspace = workspace)
-    val result = cmdUnused(List("com.other"), ctx)
-    result match
-      case r: CmdResult.SymbolList =>
-        r.symbols.foreach { s =>
-          assert(s.packageName.startsWith("com.other"), s"Should be in com.other: ${s.packageName}")
-        }
-      case _: CmdResult.NotFound => () // acceptable if no unused
-      case other => fail(s"Expected SymbolList or NotFound but got: $other")
-  }
-
-  test("unused: well-used symbols not reported") {
-    val idx = WorkspaceIndex(workspace, needBlooms = true)
-    idx.index()
-    val ctx = CommandContext(idx = idx, workspace = workspace)
-    val result = cmdUnused(Nil, ctx)
-    result match
-      case r: CmdResult.SymbolList =>
-        val names = r.symbols.map(_.name)
-        // UserService is heavily used across files — should NOT be in unused list
-        assert(!names.contains("UserService"), s"UserService should not be unused: $names")
-      case other => fail(s"Expected SymbolList but got: $other")
-  }
-
-  // ── call-graph ────────────────────────────────────────────────────────
-
-  test("call-graph: returns valid structure") {
-    val idx = WorkspaceIndex(workspace, needBlooms = true)
-    idx.index()
-    val ctx = CommandContext(idx = idx, workspace = workspace)
-    val result = cmdCallGraph(List("findUser"), ctx)
-    result match
-      case r: CmdResult.CallGraph =>
-        assertEquals(r.method, "findUser")
-        assert(r.file != null, "Should have file")
-        assert(r.line > 0, "Should have line")
-      case other => fail(s"Expected CallGraph but got: $other")
-  }
-
-  test("call-graph: includes callers") {
-    val idx = WorkspaceIndex(workspace, needBlooms = true)
-    idx.index()
-    val ctx = CommandContext(idx = idx, workspace = workspace)
-    val result = cmdCallGraph(List("findUser"), ctx)
-    result match
-      case r: CmdResult.CallGraph =>
-        // findUser is called in UserServiceSpec
-        assert(r.callers.nonEmpty, s"findUser should have callers")
-      case other => fail(s"Expected CallGraph but got: $other")
-  }
-
-  test("call-graph: JSON output") {
-    val idx = WorkspaceIndex(workspace, needBlooms = true)
-    idx.index()
-    val ctx = CommandContext(idx = idx, workspace = workspace, jsonOutput = true)
-    val output = captureOut {
-      renderWithBudget(cmdCallGraph(List("findUser"), ctx), ctx)
-    }
-    assert(output.contains(""""method":"findUser""""), s"Should have method:\n$output")
-    assert(output.contains(""""callees":["""), s"Should have callees:\n$output")
-    assert(output.contains(""""callers":["""), s"Should have callers:\n$output")
-  }
-
-  test("call-graph: text output") {
-    val idx = WorkspaceIndex(workspace, needBlooms = true)
-    idx.index()
-    val ctx = CommandContext(idx = idx, workspace = workspace)
-    val output = captureOut {
-      renderWithBudget(cmdCallGraph(List("findUser"), ctx), ctx)
-    }
-    assert(output.contains("Call graph for"), s"Should have header:\n$output")
-    assert(output.contains("Calls"), s"Should have calls section:\n$output")
-  }
-
-  test("call-graph: not found") {
-    val idx = WorkspaceIndex(workspace, needBlooms = true)
-    idx.index()
-    val ctx = CommandContext(idx = idx, workspace = workspace)
-    val result = cmdCallGraph(List("nonExistentMethod"), ctx)
-    result match
-      case _: CmdResult.NotFound => () // expected
-      case other => fail(s"Expected NotFound but got: $other")
-  }
+}

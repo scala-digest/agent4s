@@ -1,14 +1,28 @@
 name: Release
 
 on:
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'clibase/**'
+      - 'graph/**'
+      - 'resources/**'
+      - 'build.mill'
+      - 'mill'
+      - 'mill.bat'
+      - 'build-native.sh'
+      - 'scripts/check-native.sh'
+      - '.github/workflows/release.yml'
   push:
     tags:
       - 'v*'
 
+concurrency:
+  group: native-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
-  contents: write
-  id-token: write
-  attestations: write
+  contents: read
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -28,7 +42,7 @@ jobs:
           - os: ubuntu-24.04
             artifact: scalex-linux-x64
           - os: windows-2022
-            artifact: scalex-windows-x64
+            artifact: scalex-windows-x64.exe
 
     runs-on: ${{ matrix.os }}
 
@@ -37,86 +51,66 @@ jobs:
 
       - uses: graalvm/setup-graalvm@03e8abf916fd0e281b2efe7b2da3378bb0a1d085 # v1
         with:
-          java-version: '21'
+          java-version: '24.0.2'
           distribution: 'graalvm'
           github-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - uses: ./.github/actions/setup-scala-cli
 
       - name: Configure Visual Studio (Windows)
         if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@a102174a2b586eec2ea151a69e6fd14404a8ce7c # v1.13.0
 
-      - name: Build native image (Unix)
-        if: runner.os != 'Windows'
-        run: ./build-native.sh ${{ matrix.artifact }}
-
-      - name: Build native image (Windows)
-        if: runner.os == 'Windows'
+      - name: Build native image
         shell: bash
-        run: ./build-native.sh "${{ matrix.artifact }}.exe"
+        run: ./build-native.sh "${{ matrix.artifact }}"
 
       - name: Check binary version against release tag
+        if: github.ref_type == 'tag'
         shell: bash
         env:
           ARTIFACT: ${{ matrix.artifact }}
         run: |
-          binary="./$ARTIFACT"
-          if [[ "$RUNNER_OS" == "Windows" ]]; then
-            binary+=".exe"
-          fi
-          actual=$("$binary" --version)
+          actual=$("./$ARTIFACT" --version)
           actual=${actual%$'\r'}
           if [[ "v$actual" != "$GITHUB_REF_NAME" ]]; then
             echo "::error::$ARTIFACT reports $actual for release $GITHUB_REF_NAME"
             exit 1
           fi
 
-      - name: Test binary (Unix)
-        if: runner.os != 'Windows'
-        run: |
-          ./${{ matrix.artifact }} help
-          ./${{ matrix.artifact }} index .
-          ./${{ matrix.artifact }} search . Scalex
-          ./${{ matrix.artifact }} def . SymbolKind
-          ./${{ matrix.artifact }} symbols . src/model.scala
-
-      - name: Test binary (Windows)
-        if: runner.os == 'Windows'
+      - name: Test binary
         shell: bash
+        env:
+          ARTIFACT: ${{ matrix.artifact }}
         run: |
-          ./${{ matrix.artifact }}.exe help
-          ./${{ matrix.artifact }}.exe index .
-          ./${{ matrix.artifact }}.exe search . Scalex
-          ./${{ matrix.artifact }}.exe def . SymbolKind
-          ./${{ matrix.artifact }}.exe symbols . src/model.scala
+          bash scripts/check-native.sh "./$ARTIFACT"
+          "./$ARTIFACT" --version
+          "./$ARTIFACT" def WorkspaceIndex --json
+          "./$ARTIFACT" scaffold test WorkspaceIndex --json
 
-      - name: Generate checksum (Unix)
-        if: runner.os != 'Windows'
-        run: shasum -a 256 ${{ matrix.artifact }} > ${{ matrix.artifact }}.sha256
-
-      - name: Generate checksum (Windows)
-        if: runner.os == 'Windows'
+      - name: Generate checksum
         shell: bash
-        run: sha256sum ${{ matrix.artifact }}.exe > ${{ matrix.artifact }}.exe.sha256
+        env:
+          ARTIFACT: ${{ matrix.artifact }}
+        run: |
+          if command -v sha256sum >/dev/null; then
+            sha256sum "$ARTIFACT" > "$ARTIFACT.sha256"
+          else
+            shasum -a 256 "$ARTIFACT" > "$ARTIFACT.sha256"
+          fi
 
       - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
-        if: runner.os != 'Windows'
+        if: github.ref_type == 'tag'
         with:
           name: ${{ matrix.artifact }}
           path: |
             ${{ matrix.artifact }}
             ${{ matrix.artifact }}.sha256
 
-      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
-        if: runner.os == 'Windows'
-        with:
-          name: ${{ matrix.artifact }}
-          path: |
-            ${{ matrix.artifact }}.exe
-            ${{ matrix.artifact }}.exe.sha256
-
   release:
+    if: github.ref_type == 'tag'
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
     needs: build
     runs-on: ubuntu-24.04
     steps:
@@ -131,10 +125,10 @@ jobs:
 
       - name: Generate combined checksums
         run: |
-          cd artifacts
-          shasum -a 256 */scalex-macos-arm64 */scalex-macos-x64 */scalex-linux-x64 */scalex-windows-x64.exe | sed 's|[^/]*/||' > ../checksums.txt
-          cd ..
-          echo "Generated checksums.txt:"
+          for asset in scalex-macos-arm64 scalex-macos-x64 scalex-linux-x64 scalex-windows-x64.exe; do
+            (cd "artifacts/$asset" && sha256sum --check "$asset.sha256")
+            cat "artifacts/$asset/$asset.sha256" >> checksums.txt
+          done
           cat checksums.txt
 
       - name: Attest build provenance

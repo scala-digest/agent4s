@@ -1,59 +1,33 @@
+package scalex
+
 import java.nio.file.Path
 import com.google.common.hash.BloomFilter
-import java.util.concurrent.ConcurrentLinkedQueue as CLQ
 
-val ScalexVersion = "0.5.1"
-
-// ── Timings ────────────────────────────────────────────────────────────────
-
-object Timings:
-  var enabled: Boolean = false
-  private val entries = CLQ[(String, Long)]()
-
-  inline def phase[A](name: String)(body: => A): A =
-    if !enabled then body
-    else
-      val t0 = System.nanoTime()
-      val result = body
-      entries.add((name, System.nanoTime() - t0))
-      result
-
-  def report(): Unit =
-    if !enabled then return
-    import scala.jdk.CollectionConverters.*
-    val items = entries.asScala.toList
-    entries.clear()
-    if items.isEmpty then return
-    val total = items.map(_._2).sum
-    System.err.println("Timings:")
-    items.foreach { (name, nanos) =>
-      val ms = nanos / 1_000_000.0
-      val pct = if total > 0 then (nanos * 100.0 / total).round else 0
-      System.err.println(f"  $name%-22s $ms%8.1f ms  ($pct%2d%%)")
-    }
-    val totalMs = total / 1_000_000.0
-    System.err.println(f"  ${"total"}%-22s $totalMs%8.1f ms")
-
-  def reset(): Unit = entries.clear()
+val ScalexVersion = "0.6.0"
 
 // ── Data types ──────────────────────────────────────────────────────────────
 
-enum SymbolKind(val id: Byte):
-  case Class     extends SymbolKind(0)
-  case Trait     extends SymbolKind(1)
-  case Object    extends SymbolKind(2)
-  case Def       extends SymbolKind(3)
-  case Val       extends SymbolKind(4)
-  case Var       extends SymbolKind(5)
-  case Type      extends SymbolKind(6)
-  case Enum      extends SymbolKind(7)
-  case Given     extends SymbolKind(8)
+enum SymbolKind(val id: Byte) {
+  case Class extends SymbolKind(0)
+  case Trait extends SymbolKind(1)
+  case Object extends SymbolKind(2)
+  case Def extends SymbolKind(3)
+  case Val extends SymbolKind(4)
+  case Var extends SymbolKind(5)
+  case Type extends SymbolKind(6)
+  case Enum extends SymbolKind(7)
+  case Given extends SymbolKind(8)
   case Extension extends SymbolKind(9)
-  case Package   extends SymbolKind(10)
+  case Package extends SymbolKind(10)
 
-object SymbolKind:
+  /** Lowercase display name used in all text and JSON output. */
+  def label: String = toString.toLowerCase
+}
+
+object SymbolKind {
   private val byId: Array[SymbolKind] = values.sortBy(_.id)
   def fromId(id: Byte): SymbolKind = byId(id)
+}
 
 case class SymbolInfo(
     name: String,
@@ -80,297 +54,123 @@ case class IndexedFile(
     parseFailed: Boolean = false
 )
 
-enum RefCategory:
+enum RefCategory {
   case Definition, ExtendedBy, ImportedBy, UsedAsType, Comment, Usage
+}
 
-case class CategorizedRef(ref: Reference, category: RefCategory)
+/** Display order for reference categories (differs from declaration order). */
+val refCategoryOrder: List[RefCategory] = List(
+  RefCategory.Definition,
+  RefCategory.ExtendedBy,
+  RefCategory.ImportedBy,
+  RefCategory.UsedAsType,
+  RefCategory.Usage,
+  RefCategory.Comment
+)
 
-enum Confidence:
+enum Confidence {
   case High, Medium, Low
+
+  def label: String = s"$this confidence"
+
+  /** Parenthetical shown next to the label in categorized refs output. */
+  def explanation: String = this match {
+    case Confidence.High   => "import-matched"
+    case Confidence.Medium => "wildcard import"
+    case Confidence.Low    => "no matching import"
+  }
+}
 
 // ── Member / body / hierarchy types ─────────────────────────────────────────
 
-case class MemberInfo(name: String, kind: SymbolKind, line: Int, signature: String = "", annotations: List[String] = Nil, isOverride: Boolean = false, body: Option[BodyInfo] = None)
+case class MemberInfo(
+    name: String,
+    kind: SymbolKind,
+    line: Int,
+    signature: String = "",
+    annotations: List[String] = Nil,
+    isOverride: Boolean = false,
+    body: Option[BodyInfo] = None
+)
 
-case class BodyInfo(ownerName: String, symbolName: String, sourceText: String, startLine: Int, endLine: Int, isAbstract: Boolean = false)
+/** Members grouped under the parent type they are inherited from. */
+type InheritedGroup = (parentName: String, parentFile: Option[Path], parentPackage: String, members: List[MemberInfo])
 
-case class HierarchyNode(name: String, kind: Option[SymbolKind], file: Option[Path], line: Option[Int], packageName: String, isExternal: Boolean)
-case class HierarchyTree(root: HierarchyNode, parents: List[HierarchyTree], children: List[HierarchyTree], truncatedChildren: Int = 0)
+case class BodyInfo(
+    ownerName: String,
+    symbolName: String,
+    sourceText: String,
+    startLine: Int,
+    endLine: Int,
+    isAbstract: Boolean = false
+)
 
-case class OverrideInfo(file: Path, line: Int, enclosingClass: String, enclosingKind: SymbolKind, signature: String, packageName: String, body: Option[BodyInfo] = None)
+/** A node in a hierarchy tree: the resolved symbol, or just a name when the type is defined outside the workspace
+  * (`sym` empty = external).
+  */
+case class HierarchyNode(name: String, sym: Option[SymbolInfo]) {
+  def isExternal: Boolean = sym.isEmpty
+  def packageName: String = sym.map(_.packageName).getOrElse("")
+}
+case class HierarchyTree(
+    root: HierarchyNode,
+    parents: List[HierarchyTree],
+    children: List[HierarchyTree],
+    truncatedChildren: Int = 0
+)
+
+case class OverrideInfo(
+    file: Path,
+    line: Int,
+    enclosingClass: String,
+    enclosingKind: SymbolKind,
+    signature: String,
+    packageName: String,
+    body: Option[BodyInfo] = None
+)
 
 case class ScopeInfo(name: String, kind: String, line: Int)
 
-case class DiffSymbol(name: String, kind: SymbolKind, file: String, line: Int, packageName: String, signature: String)
+case class DiffSymbol(
+    name: String,
+    kind: SymbolKind,
+    file: String,
+    line: Int,
+    packageName: String,
+    signature: String,
+    contentHash: String = "",
+    owner: List[String] = Nil
+)
 
-case class TestCaseInfo(name: String, line: Int, suiteName: String, suiteFile: Path)
+case class TestCaseInfo(name: String, line: Int)
 case class TestSuiteInfo(name: String, file: Path, line: Int, tests: List[TestCaseInfo], dynamicSites: Int = 0)
 
 // ── Dependency extraction types ─────────────────────────────────────────────
 
-case class DepInfo(name: String, kind: String, file: Option[Path], line: Option[Int], packageName: String, depth: Int = 0)
+case class DepInfo(
+    name: String,
+    kind: String,
+    file: Option[Path],
+    line: Option[Int],
+    packageName: String,
+    depth: Int = 0
+)
 
-// ── AST pattern matching types ──────────────────────────────────────────────
-
-case class AstPatternMatch(name: String, kind: SymbolKind, file: Path, line: Int, packageName: String, signature: String)
-
-case class MethodGrepMatch(member: MemberInfo, file: Path, matchCount: Int, matchLines: List[(lineNum: Int, text: String)] = Nil)
+case class MethodGrepMatch(
+    member: MemberInfo,
+    file: Path,
+    matchCount: Int,
+    matchLines: List[(lineNum: Int, text: String)] = Nil
+)
 
 case class ExplainedImpl(sym: SymbolInfo, members: List[MemberInfo], subImpls: List[ExplainedImpl] = Nil)
 
 case class PackageExplainedEntry(sym: SymbolInfo, members: List[MemberInfo], implCount: Int)
 
-// ── Rename types ──────────────────────────────────────────────────────────
-
-case class RenameEdit(file: Path, line: Int, oldLine: String, newLine: String, category: String)
-
-// ── Call graph types ──────────────────────────────────────────────────────
-
-case class CalleeInfo(name: String, kind: SymbolKind, file: Option[Path], line: Option[Int], packageName: String, signature: String)
-
 // ── Entrypoint types ───────────────────────────────────────────────────────
 
 case class EntrypointInfo(sym: SymbolInfo, category: EntrypointCategory, memberLine: Option[Int] = None)
 
-enum EntrypointCategory:
+enum EntrypointCategory {
   case MainAnnotation, MainMethod, ExtendsApp, TestSuite
-
-// ── Bug hunt types ─────────────────────────────────────────────────────────
-
-enum BugSeverity:
-  case Critical, High, Medium
-
-enum BugCategory:
-  case Security, TypeSafety, Concurrency, Resource, Effect
-
-enum BugPattern(val severity: BugSeverity, val category: BugCategory, val description: String):
-  case OptionGet          extends BugPattern(BugSeverity.Medium,   BugCategory.TypeSafety,   ".get on Option — throws NoSuchElementException if empty")
-  case CollectionHead     extends BugPattern(BugSeverity.Medium,   BugCategory.TypeSafety,   ".head on collection — throws on empty collection")
-  case AsInstanceOf       extends BugPattern(BugSeverity.Medium,   BugCategory.TypeSafety,   "asInstanceOf — ClassCastException at runtime")
-  case NullLiteral        extends BugPattern(BugSeverity.Medium,   BugCategory.TypeSafety,   "null literal — NullPointerException risk")
-  case ReturnInLambda     extends BugPattern(BugSeverity.High,     BugCategory.TypeSafety,   "return in lambda — non-local return, deprecated in Scala 3")
-  case ThrowInZioSucceed  extends BugPattern(BugSeverity.High,     BugCategory.Effect,       "throw inside ZIO.succeed/UIO — unhandled defect")
-  case AwaitInfinite      extends BugPattern(BugSeverity.High,     BugCategory.Concurrency,  "Await.result with Duration.Inf — blocks forever")
-  case ThreadSleepAsync   extends BugPattern(BugSeverity.Medium,   BugCategory.Concurrency,  "Thread.sleep in async context — blocks fiber scheduler")
-  case SenderInFuture     extends BugPattern(BugSeverity.High,     BugCategory.Concurrency,  "sender() inside Future — captures stale ActorRef")
-  case FragmentConst      extends BugPattern(BugSeverity.Critical, BugCategory.Security,     "Fragment.const with interpolation — SQL injection")
-  case SpliceInterpolation extends BugPattern(BugSeverity.Critical, BugCategory.Security,    "sql\"...#$...\" — unparameterized SQL splice")
-  case ObjectInputStream  extends BugPattern(BugSeverity.Critical, BugCategory.Security,     "ObjectInputStream.readObject — insecure deserialization")
-  case JacksonDefaultTyping extends BugPattern(BugSeverity.Critical, BugCategory.Security,   "enableDefaultTyping — arbitrary class instantiation")
-  case HardcodedSecret    extends BugPattern(BugSeverity.Critical, BugCategory.Security,     "hardcoded password/secret/token in string literal")
-  case ResourceLeak       extends BugPattern(BugSeverity.Medium,   BugCategory.Resource,     "Source.fromFile without Using/close — resource leak")
-  case CommandInjection   extends BugPattern(BugSeverity.Critical, BugCategory.Security,     "Runtime.exec/ProcessBuilder with non-literal arg — command injection")
-  case PathTraversal      extends BugPattern(BugSeverity.High,     BugCategory.Security,     "new File/Paths.get with non-literal arg — path traversal")
-  case XSS               extends BugPattern(BugSeverity.High,     BugCategory.Security,     "Html() with non-literal arg — cross-site scripting")
-  case OpenRedirect       extends BugPattern(BugSeverity.High,     BugCategory.Security,     "Redirect with non-literal URL — open redirect")
-  case SSRF              extends BugPattern(BugSeverity.High,     BugCategory.Security,     "HTTP request with non-literal URL — server-side request forgery")
-  // ── Weak cryptography ──
-  case WeakHash          extends BugPattern(BugSeverity.High,     BugCategory.Security,     "MD5/SHA1 hash — cryptographically broken, use SHA-256+")
-  case WeakCipher        extends BugPattern(BugSeverity.High,     BugCategory.Security,     "DES/RC4/Blowfish cipher — broken, use AES-256")
-  case WeakRandom        extends BugPattern(BugSeverity.High,     BugCategory.Security,     "java.util.Random for security — use SecureRandom")
-  case HardcodedIV       extends BugPattern(BugSeverity.High,     BugCategory.Security,     "hardcoded IV/nonce in crypto — must be random per encryption")
-  case ECBMode           extends BugPattern(BugSeverity.High,     BugCategory.Security,     "ECB cipher mode — patterns visible in ciphertext, use CBC/GCM")
-  case NoPadding         extends BugPattern(BugSeverity.Medium,   BugCategory.Security,     "NoPadding with block cipher — potential padding oracle")
-  // ── XML/XXE ──
-  case XXE               extends BugPattern(BugSeverity.Critical, BugCategory.Security,     "XML parsing without disabling external entities — XXE attack")
-  case XPathInjection    extends BugPattern(BugSeverity.High,     BugCategory.Security,     "XPath with non-literal expression — XPath injection")
-  // ── Logging ──
-  case LogInjection      extends BugPattern(BugSeverity.Medium,   BugCategory.Security,     "user input in log message — log injection / log forging")
-  // ── ZIO / effect-specific ──
-  case ZioDie            extends BugPattern(BugSeverity.High,     BugCategory.Effect,       "ZIO.die in production code — unrecoverable defect, prefer fail")
-  case UnsafeRun         extends BugPattern(BugSeverity.High,     BugCategory.Effect,       "Unsafe.unsafe / unsafeRun — breaks referential transparency")
-  case BlockingInEffect  extends BugPattern(BugSeverity.High,     BugCategory.Effect,       "blocking call inside ZIO/IO — use ZIO.attemptBlocking")
-  case IgnoredFuture     extends BugPattern(BugSeverity.Medium,   BugCategory.Effect,       "Future result discarded — errors silently swallowed")
-  case FutureOnComplete  extends BugPattern(BugSeverity.Medium,   BugCategory.Effect,       "Future.onComplete ignoring Failure — silent error swallowing")
-  // ── Concurrency extended ──
-  case SynchronizedNested extends BugPattern(BugSeverity.High,    BugCategory.Concurrency,  "nested synchronized blocks — potential deadlock")
-  case VarInConcurrent   extends BugPattern(BugSeverity.High,     BugCategory.Concurrency,  "var field in class with Future/ZIO — race condition risk")
-  case MutableShared     extends BugPattern(BugSeverity.Medium,   BugCategory.Concurrency,  "mutable collection in object/class field — thread-safety risk")
-  // ── Type safety extended ──
-  case CollectionLast    extends BugPattern(BugSeverity.Medium,   BugCategory.TypeSafety,   ".tail on collection — throws on empty collection")
-  case UnsafeGet         extends BugPattern(BugSeverity.Medium,   BugCategory.TypeSafety,   "Try.get / Future.value.get — throws on failure")
-  case PartialFunction   extends BugPattern(BugSeverity.Medium,   BugCategory.TypeSafety,   "match without default case on non-sealed type — MatchError risk")
-  // ── Resource management ──
-  case ConnectionLeak    extends BugPattern(BugSeverity.High,     BugCategory.Resource,     "Connection/Statement opened without close — connection leak")
-  case StreamNotClosed   extends BugPattern(BugSeverity.Medium,   BugCategory.Resource,     "InputStream/OutputStream without close — resource leak")
-  // ── Regex ──
-  case RegexDoS          extends BugPattern(BugSeverity.High,     BugCategory.Security,     "Regex compiled from user input — ReDoS (regex denial of service)")
-  case LDAPInjection     extends BugPattern(BugSeverity.High,     BugCategory.Security,     "LDAP query with non-literal filter — LDAP injection")
-  // ── Credential value detection ──
-  case HardcodedCredential extends BugPattern(BugSeverity.Critical, BugCategory.Security,   "hardcoded credential detected in string literal (regex match)")
-
-case class BugFinding(
-  file: Path,
-  line: Int,
-  pattern: BugPattern,
-  contextLine: String,
-  enclosingSymbol: String,
-  message: String,
-  taintFlow: Option[TaintFlow] = None,
-  reachableFrom: Option[List[String]] = None,
-  callDepth: Option[Int] = None
-)
-
-case class TaintSource(name: String, description: String, file: Path, line: Int)
-case class TaintStep(varName: String, file: Path, line: Int, operation: String)
-case class TaintFlow(source: TaintSource, steps: List[TaintStep], confidence: Double)
-
-case class HotspotInfo(
-  file: String,
-  findingCount: Int,
-  churnScore: Int,
-  complexityScore: Int,
-  riskScore: Double
-)
-
-// ── Suppression memories ──────────────────────────────────────────────────
-
-case class SuppressionMemory(
-  patternName: String,
-  scope: MemoryScope,
-  reason: String,
-  source: MemorySource,
-  suppressionType: SuppressionType,
-  contextLine: String,
-  createdAt: Long
-)
-
-enum MemoryScope:
-  case Global(patternName: String)
-  case FileScoped(patternName: String, filePattern: String)
-  case MethodScoped(patternName: String, filePattern: String, methodName: String)
-
-enum MemorySource:
-  case LlmTriage(skillRun: String)
-  case UserManual
-  case CommunitySubmit(issueNumber: Int)
-
-enum SuppressionType:
-  case Ignore, Lower, Review
-
-// ── Command context ────────────────────────────────────────────────────────
-
-case class CommandContext(
-  idx: WorkspaceIndex, workspace: Path,
-  limit: Int = 20, verbose: Boolean = false, jsonOutput: Boolean = false, batchMode: Boolean = false,
-  kindFilter: Option[String] = None, noTests: Boolean = false, pathFilter: Option[String] = None,
-  contextLines: Int = 0, categorize: Boolean = true, categoryFilter: Option[String] = None,
-  grepPatterns: List[String] = Nil, countOnly: Boolean = false, topN: Option[Int] = None,
-  searchMode: Option[String] = None, definitionsOnly: Boolean = false,
-  inOwner: Option[String] = None, ofTrait: Option[String] = None,
-  implLimit: Int = 5, goUp: Boolean = true, goDown: Boolean = true, maxDepth: Int = -1,
-  inherited: Boolean = false, architecture: Boolean = false,
-  brief: Boolean = false, strict: Boolean = false,
-  focusPackage: Option[String] = None,
-  hasMethodFilter: Option[String] = None, extendsFilter: Option[String] = None,
-  bodyContainsFilter: Option[String] = None,
-  expandDepth: Int = 0,
-  membersLimit: Int = 10,
-  usedByFilter: Option[String] = None,
-  returnsFilter: Option[String] = None,
-  takesFilter: Option[String] = None,
-  shallow: Boolean = false,
-  noDoc: Boolean = false,
-  excludePath: Option[String] = None,
-  summaryMode: Boolean = false,
-  withBody: Boolean = false, maxBodyLines: Int = 0,
-  showImports: Boolean = false,
-  offset: Int = 0,
-  related: Boolean = false,
-  explainMode: Boolean = false,
-  concise: Boolean = false,
-  maxOutput: Int = 0,
-  inPackageFilter: Option[String] = None,
-  eachMethod: Boolean = false,
-  semantic: Boolean = false,
-  framework: String = "munit",
-  bugSeverity: Option[String] = None,
-  bugCategory: Option[String] = None,
-  hotspots: Boolean = false,
-  noTaint: Boolean = false,
-  applyEdits: Boolean = false,
-  reachable: Boolean = false,
-  reachableDepth: Int = 5,
-  reachableIncludeTests: Boolean = false,
-):
-  val fmt: (SymbolInfo, Path) => String = if verbose then formatSymbolVerbose else formatSymbol
-  val jRef: Reference => String =
-    if contextLines > 0 then r => jsonRefWithContext(r, workspace, contextLines)
-    else r => jsonRef(r, workspace)
-  val fmtRef: Reference => String =
-    if contextLines > 0 then r => formatRefWithContext(r, workspace, contextLines)
-    else r => formatRef(r, workspace)
-
-// ── CmdResult types ────────────────────────────────────────────────────────
-
-case class NotFoundHint(symbol: String, fileCount: Int, parseFailures: Int, cmd: String, batchMode: Boolean, looksLikePath: Boolean, suggestions: List[String] = Nil)
-
-case class MemberSectionData(
-  file: Path, ownerKind: SymbolKind, packageName: String, line: Int,
-  ownMembers: List[MemberInfo],
-  inherited: List[(parentName: String, parentFile: Option[Path], parentPackage: String, members: List[MemberInfo])],
-  companion: Option[(sym: SymbolInfo, members: List[MemberInfo])] = None
-)
-
-case class DocEntryData(sym: SymbolInfo, doc: Option[String])
-
-case class OverviewData(
-  fileCount: Int, symbolCount: Int, packageCount: Int,
-  symbolsByKind: List[(kind: SymbolKind, count: Int)],
-  topPackages: List[(pkg: String, count: Int)],
-  mostExtended: List[(name: String, count: Int, signature: String)],
-  pkgDeps: Map[String, Set[String]],
-  hubTypes: List[(name: String, score: Int, signature: String)],
-  hasArchitecture: Boolean,
-  focusPackage: Option[String] = None
-)
-
-case class TestCaseResult(name: String, line: Int, body: Option[BodyInfo])
-case class TestSuiteResult(name: String, file: Path, line: Int, tests: List[TestCaseResult])
-
-enum CmdResult:
-  case SymbolList(header: String, symbols: List[SymbolInfo], total: Int, emptyMessage: String = "", truncate: Boolean = true)
-  case RefList(header: String, refs: List[Reference], timedOut: Boolean, hint: Option[String] = None, useContext: Boolean = true, emptyMessage: String = "", stderrHint: Option[String] = None)
-  case CategorizedRefs(symbol: String, grouped: Map[RefCategory, List[Reference]], targetPkgs: Set[String], timedOut: Boolean, stderrHint: Option[String] = None)
-  case FlatRefs(symbol: String, refs: List[Reference], targetPkgs: Set[String], timedOut: Boolean)
-  case StringList(header: String, items: List[String], total: Int, emptyMessage: String = "")
-  case IndexStats(fileCount: Int, symbolCount: Int, packageCount: Int, symbolsByKind: List[(kind: SymbolKind, count: Int)], indexTimeMs: Long, cachedLoad: Boolean, parsedCount: Int, skippedCount: Int, parseFailures: Int, parseFailedFiles: List[String])
-  case MemberSections(symbol: String, sections: List[MemberSectionData])
-  case DocEntries(symbol: String, entries: List[DocEntryData])
-  case Overview(data: OverviewData)
-  case SourceBlocks(symbol: String, blocks: List[(file: Path, body: BodyInfo)], contextLines: Int = 0, showImports: Boolean = false)
-  case TestSuites(suites: List[TestSuiteResult], showBody: Boolean, emptyMessage: String = "No test suites found")
-  case TestCount(suites: Int, tests: Int, dynamicSites: Int)
-  case CoverageReport(symbol: String, totalRefs: Int, testRefs: List[Reference], testFiles: List[String])
-  case HierarchyResult(symbol: String, tree: HierarchyTree)
-  case OverrideList(header: String, results: List[OverrideInfo])
-  case Explanation(sym: SymbolInfo, doc: Option[String], members: List[MemberInfo], impls: List[SymbolInfo], importRefs: List[Reference],
-    companion: Option[(sym: SymbolInfo, members: List[MemberInfo])] = None,
-    expandedImpls: List[ExplainedImpl] = Nil,
-    otherMatches: List[String] = Nil, totalImpls: Int = 0,
-    inherited: List[(parentName: String, parentFile: Option[Path], parentPackage: String, members: List[MemberInfo])] = Nil,
-    relatedTypes: List[SymbolInfo] = Nil)
-  case Dependencies(symbol: String, importDeps: List[DepInfo], bodyDeps: List[DepInfo])
-  case Scopes(file: Path, line: Int, scopes: List[ScopeInfo])
-  case SymbolDiff(ref: String, filesChanged: Int, added: List[DiffSymbol], removed: List[DiffSymbol], modified: List[(before: DiffSymbol, after: DiffSymbol)])
-  case AstMatches(filters: String, results: List[AstPatternMatch])
-  case GrepCount(matches: Int, files: Int, timedOut: Boolean, hint: Option[String] = None, stderrHint: Option[String] = None)
-  case GrepByMethod(pattern: String, owner: String, methods: List[MethodGrepMatch], hint: Option[String] = None, stderrHint: Option[String] = None, timedOut: Boolean = false)
-  case Packages(packages: List[String])
-  case PackageSymbols(pkg: String, symbols: List[SymbolInfo])
-  case PackageExplained(pkg: String, entries: List[PackageExplainedEntry], totalSymbols: Int, totalTypes: Int)
-  case PackageSummary(pkg: String, subPackages: List[(subPkg: String, count: Int)], totalSymbols: Int)
-  case ApiSurface(pkg: String, symbols: List[(symbol: SymbolInfo, importerCount: Int)], totalInPackage: Int, internalOnly: List[String])
-  case RefsTop(symbol: String, fileRanking: List[(file: Path, count: Int)], total: Int, timedOut: Boolean)
-  case RefsSummary(symbol: String, categoryCounts: List[(category: RefCategory, count: Int)], total: Int, timedOut: Boolean)
-  case Entrypoints(entries: List[EntrypointInfo], total: Int)
-  case GraphOutput(text: String)
-  case RenameResult(oldName: String, newName: String, definition: SymbolInfo, edits: List[RenameEdit])
-  case CallGraph(method: String, file: Path, line: Int, owner: String, callees: List[CalleeInfo], callers: List[Reference])
-  case ScaffoldImpl(targetName: String, targetFile: Path, targetLine: Int, targetPackage: String, unimplemented: List[(parentName: String, parentFile: Path, parentLine: Int, members: List[MemberInfo])])
-  case ScaffoldTest(targetName: String, targetFile: Path, targetLine: Int, targetPackage: String, publicMembers: List[MemberInfo], framework: String)
-  case BugHuntReport(findings: List[BugFinding], hotspots: List[HotspotInfo], filesScanned: Int, timedOut: Boolean)
-  case MemoryResult(memories: List[SuppressionMemory], message: String = "")
-  case PatternValidation(results: List[PatternValidationResult])
-  case NotFound(message: String, hint: NotFoundHint)
-  case UsageError(message: String)
+}

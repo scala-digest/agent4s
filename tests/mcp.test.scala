@@ -1,6 +1,10 @@
+package scalex
+
+import scalex.output.*
+
 import munit.FunSuite
 
-class McpSuite extends FunSuite:
+class McpSuite extends FunSuite {
 
   // ── JSON parser ─────────────────────────────────────────────────────────
 
@@ -39,9 +43,17 @@ class McpSuite extends FunSuite:
 
   test("McpJson parses arrays") {
     val result = McpJson.parse("""[1, "two", true, null]""")
-    assertEquals(result, McpJson.Arr(List(
-      McpJson.Num(1.0), McpJson.Str("two"), McpJson.Bool(true), McpJson.Null
-    )))
+    assertEquals(
+      result,
+      McpJson.Arr(
+        List(
+          McpJson.Num(1.0),
+          McpJson.Str("two"),
+          McpJson.Bool(true),
+          McpJson.Null
+        )
+      )
+    )
   }
 
   test("McpJson parses empty array") {
@@ -50,10 +62,15 @@ class McpSuite extends FunSuite:
 
   test("McpJson parses objects") {
     val result = McpJson.parse("""{"name": "scalex", "version": 1}""")
-    assertEquals(result, McpJson.Obj(List(
-      (key = "name", value = McpJson.Str("scalex")),
-      (key = "version", value = McpJson.Num(1.0))
-    )))
+    assertEquals(
+      result,
+      McpJson.Obj(
+        List(
+          (key = "name", value = McpJson.Str("scalex")),
+          (key = "version", value = McpJson.Num(1.0))
+        )
+      )
+    )
   }
 
   test("McpJson parses empty object") {
@@ -115,7 +132,9 @@ class McpSuite extends FunSuite:
   // ── JSON-RPC message parsing ────────────────────────────────────────────
 
   test("McpJson parses initialize request") {
-    val msg = McpJson.parse("""{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"cursor","version":"1.0"}}}""")
+    val msg = McpJson.parse(
+      """{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"cursor","version":"1.0"}}}"""
+    )
     assertEquals(msg("jsonrpc").asStr, Some("2.0"))
     assertEquals(msg("id").asNum, Some(1.0))
     assertEquals(msg("method").asStr, Some("initialize"))
@@ -124,7 +143,9 @@ class McpSuite extends FunSuite:
   }
 
   test("McpJson parses tools/call request") {
-    val msg = McpJson.parse("""{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"scalex_search","arguments":{"workspace":"/tmp/project","query":"UserService","args":["--verbose","--kind","class"]}}}""")
+    val msg = McpJson.parse(
+      """{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"scalex_search","arguments":{"workspace":"/tmp/project","query":"UserService","args":["--verbose","--kind","class"]}}}"""
+    )
     assertEquals(msg("method").asStr, Some("tools/call"))
     val params = msg("params")
     assertEquals(params("name").asStr, Some("scalex_search"))
@@ -220,7 +241,9 @@ class McpSuite extends FunSuite:
   }
 
   test("McpServer.handleMessage returns error for unknown tool") {
-    val msg = McpJson.parse("""{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"scalex_nonexistent","arguments":{"workspace":"/tmp"}}}""")
+    val msg = McpJson.parse(
+      """{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"scalex_nonexistent","arguments":{"workspace":"/tmp"}}}"""
+    )
     val response = McpServer.testHandleMessage(msg)
     val resp = McpJson.parse(response.get)
     val content = resp("result")("content").asArr.get.head
@@ -236,7 +259,9 @@ class McpSuite extends FunSuite:
   }
 
   test("McpServer tools/call with invalid workspace returns error") {
-    val msg = McpJson.parse("""{"jsonrpc":"2.0","id":15,"method":"tools/call","params":{"name":"scalex_search","arguments":{"workspace":"/nonexistent/path/that/does/not/exist","query":"Foo"}}}""")
+    val msg = McpJson.parse(
+      """{"jsonrpc":"2.0","id":15,"method":"tools/call","params":{"name":"scalex_search","arguments":{"workspace":"/nonexistent/path/that/does/not/exist","query":"Foo"}}}"""
+    )
     val response = McpServer.testHandleMessage(msg)
     val resp = McpJson.parse(response.get)
     val content = resp("result")("content").asArr.get.head
@@ -247,7 +272,11 @@ class McpSuite extends FunSuite:
   test("McpServer tools/call with missing query for required-query tool returns result") {
     // Commands handle missing args gracefully (usage error or empty results)
     val ws = java.nio.file.Files.createTempDirectory("mcp-missing-query")
-    val msg = McpJson.parse(s"""{"jsonrpc":"2.0","id":16,"method":"tools/call","params":{"name":"scalex_search","arguments":{"workspace":"${jsonEscape(ws.toString)}"}}}""")
+    val msg = McpJson.parse(
+      s"""{"jsonrpc":"2.0","id":16,"method":"tools/call","params":{"name":"scalex_search","arguments":{"workspace":"${jsonEscape(
+          ws.toString
+        )}"}}}"""
+    )
     val response = McpServer.testHandleMessage(msg)
     assert(response.isDefined, "should return a response even without query")
     deleteRecursive(ws)
@@ -257,7 +286,7 @@ class McpSuite extends FunSuite:
     val msg = McpJson.parse("""{"jsonrpc":"2.0","id":17,"method":"tools/list","params":{}}""")
     val response = McpServer.testHandleMessage(msg)
     val tools = McpJson.parse(response.get)("result")("tools").asArr.get
-    assertEquals(tools.size, 29, s"expected 29 tools, got ${tools.size}")
+    assertEquals(tools.flatMap(_("name").asStr).toSet, commandHandlers.keySet.map("scalex_" + _))
   }
 
   // ── Tool call integration tests ─────────────────────────────────────────
@@ -266,12 +295,14 @@ class McpSuite extends FunSuite:
     val ws = java.nio.file.Files.createTempDirectory("mcp-test")
     val srcDir = ws.resolve("src")
     java.nio.file.Files.createDirectories(srcDir)
-    java.nio.file.Files.writeString(srcDir.resolve("Example.scala"),
+    java.nio.file.Files.writeString(
+      srcDir.resolve("Example.scala"),
       """package test
         |class Example {
         |  def hello: String = "world"
         |}
-        |""".stripMargin)
+        |""".stripMargin
+    )
     // Initialize git repo
     val pb1 = ProcessBuilder("git", "init").directory(ws.toFile)
     pb1.start().waitFor()
@@ -284,7 +315,11 @@ class McpSuite extends FunSuite:
     pb3.environment().put("GIT_COMMITTER_EMAIL", "test@test.com")
     pb3.start().waitFor()
 
-    val msg = McpJson.parse(s"""{"jsonrpc":"2.0","id":20,"method":"tools/call","params":{"name":"scalex_search","arguments":{"workspace":"${jsonEscape(ws.toString)}","query":"Example"}}}""")
+    val msg = McpJson.parse(
+      s"""{"jsonrpc":"2.0","id":20,"method":"tools/call","params":{"name":"scalex_search","arguments":{"workspace":"${jsonEscape(
+          ws.toString
+        )}","query":"Example"}}}"""
+    )
     val response = McpServer.testHandleMessage(msg)
     val resp = McpJson.parse(response.get)
     val text = resp("result")("content").asArr.get.head("text").asStr.get
@@ -292,17 +327,18 @@ class McpSuite extends FunSuite:
 
     // Cleanup
     deleteRecursive(ws)
-    McpServer.testClearCache()
   }
 
   test("McpServer tools/call scalex_index rebuilds index") {
     val ws = java.nio.file.Files.createTempDirectory("mcp-index-test")
     val srcDir = ws.resolve("src")
     java.nio.file.Files.createDirectories(srcDir)
-    java.nio.file.Files.writeString(srcDir.resolve("Indexed.scala"),
+    java.nio.file.Files.writeString(
+      srcDir.resolve("Indexed.scala"),
       """package indexed
         |object Indexed
-        |""".stripMargin)
+        |""".stripMargin
+    )
     val pb1 = ProcessBuilder("git", "init").directory(ws.toFile)
     pb1.start().waitFor()
     val pb2 = ProcessBuilder("git", "add", ".").directory(ws.toFile)
@@ -314,20 +350,30 @@ class McpSuite extends FunSuite:
     pb3.environment().put("GIT_COMMITTER_EMAIL", "test@test.com")
     pb3.start().waitFor()
 
-    val msg = McpJson.parse(s"""{"jsonrpc":"2.0","id":25,"method":"tools/call","params":{"name":"scalex_index","arguments":{"workspace":"${jsonEscape(ws.toString)}"}}}""")
+    val msg = McpJson.parse(
+      s"""{"jsonrpc":"2.0","id":25,"method":"tools/call","params":{"name":"scalex_index","arguments":{"workspace":"${jsonEscape(
+          ws.toString
+        )}"}}}"""
+    )
     val response = McpServer.testHandleMessage(msg)
     val resp = McpJson.parse(response.get)
     val text = resp("result")("content").asArr.get.head("text").asStr.get
     // Index stats should mention files and symbols
-    assert(text.contains("file") || text.contains("symbol") || text.contains("Indexed"), s"index result should show stats: $text")
+    assert(
+      text.contains("file") || text.contains("symbol") || text.contains("Indexed"),
+      s"index result should show stats: $text"
+    )
 
     deleteRecursive(ws)
-    McpServer.testClearCache()
   }
 
   test("McpServer tools/call scalex_graph renders graph") {
     val ws = java.nio.file.Files.createTempDirectory("mcp-graph-test")
-    val msg = McpJson.parse(s"""{"jsonrpc":"2.0","id":30,"method":"tools/call","params":{"name":"scalex_graph","arguments":{"workspace":"${jsonEscape(ws.toString)}","query":"A->B, B->C"}}}""")
+    val msg = McpJson.parse(
+      s"""{"jsonrpc":"2.0","id":30,"method":"tools/call","params":{"name":"scalex_graph","arguments":{"workspace":"${jsonEscape(
+          ws.toString
+        )}","query":"A->B, B->C"}}}"""
+    )
     val response = McpServer.testHandleMessage(msg)
     val resp = McpJson.parse(response.get)
     val text = resp("result")("content").asArr.get.head("text").asStr.get
@@ -338,9 +384,30 @@ class McpSuite extends FunSuite:
     deleteRecursive(ws)
   }
 
-  private def deleteRecursive(path: java.nio.file.Path): Unit =
-    if java.nio.file.Files.isDirectory(path) then
+  test("MCP preserves its input stream when a tool normally reads stdin") {
+    val workspace = java.nio.file.Files.createTempDirectory("mcp-stdin")
+    try {
+      val params = ujson.Obj(
+        "name" -> "scalex_memory",
+        "arguments" -> ujson.Obj(
+          "workspace" -> workspace.toString,
+          "query" -> "import",
+          "args" -> ujson.Arr("--json")
+        )
+      )
+      val call = ujson.Obj("jsonrpc" -> "2.0", "id" -> 1, "method" -> "tools/call", "params" -> params)
+      val result = ujson.read(McpServer.testHandleMessage(McpJson.parse(ujson.write(call))).get)("result")
+      assertEquals(result("isError").bool, true)
+      assert(ujson.read(result("content")(0)("text").str)("error").str.contains("--file"))
+    } finally deleteRecursive(workspace)
+  }
+
+  private def deleteRecursive(path: java.nio.file.Path): Unit = {
+    if java.nio.file.Files.isDirectory(path) then {
       val stream = java.nio.file.Files.list(path)
       try stream.forEach(deleteRecursive)
       finally stream.close()
+    }
     java.nio.file.Files.deleteIfExists(path)
+  }
+}

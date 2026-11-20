@@ -1,0 +1,101 @@
+package build
+
+import mill.*
+import mill.javalib.NativeImageModule
+import mill.scalalib.*
+
+trait BaseScalaModule extends ScalaModule {
+  def scalaVersion: T[String] = "3.9.0"
+
+  // Latest Community release with macOS Intel support.
+  override def jvmVersion: T[String] = "graalvm-community:24.0.2"
+
+  def scalacOptions: T[Seq[String]] = Seq("-deprecation", "-Werror", "-no-indent", "-Wunused:imports")
+}
+
+trait ScalexModule extends BaseScalaModule {
+  def mvnDeps: T[Seq[Dep]] = Seq(
+    mvn"org.scalameta::scalameta:4.17.4",
+    mvn"org.scalameta:semanticdb-shared_2.13:4.17.4",
+    mvn"com.google.guava:guava:33.7.1-jre",
+    mvn"com.github.javaparser:javaparser-core:3.28.2"
+  )
+
+  def mainClass: T[Option[String]] = Some("scalex.main")
+
+  def scalexJavaOpts: T[Seq[String]] = Task.Input {
+    Task.env.get("SCALEX_JAVA_OPTS").toSeq
+  }
+
+  override def forkArgs: T[Seq[String]] = Task {
+    super.forkArgs() ++ scalexJavaOpts()
+  }
+}
+
+object `package` extends ScalexModule, NativeImageModule {
+  private def workspaceRoot: os.Path = moduleDir
+
+  override def moduleDeps: Seq[JavaModule] = Seq(clibase, graph)
+
+  // App-agnostic CLI plumbing: flag registry, output budget, timings, batch loop
+  object clibase extends BaseScalaModule
+
+  // Self-contained asciiGraph package: ASCII/Unicode graph rendering and diagram parsing
+  object graph extends BaseScalaModule
+
+  override def allSourceFiles: T[Seq[PathRef]] = Task {
+    super.allSourceFiles().filterNot(_.path == moduleDir / "src" / "bench.scala")
+  }
+
+  def nativeMarchFlag: T[Seq[String]] = Task.Input {
+    if (Task.env.contains("CI")) { Seq.empty }
+    else { Seq("-march=native") }
+  }
+
+  // native-image.cmd interprets a pipe in Mill's combined resource regex as a shell pipeline.
+  override def nativeIncludedResourcesImageOptions: T[Seq[String]] = Task {
+    nativeIncludedResources().map { resource =>
+      "-H:IncludeResources=" + java.util.regex.Pattern.quote(resource.replace('\\', '/'))
+    }
+  }
+
+  override def nativeImageOptions: T[Seq[String]] = Task {
+    super.nativeImageOptions() ++ Seq(
+      "--no-fallback",
+      "--initialize-at-run-time=com.google.common.hash.Striped64,com.google.common.hash.LongAdder,com.google.common.hash.BloomFilter,com.google.common.hash.BloomFilterStrategies"
+    ) ++ nativeMarchFlag()
+  }
+
+  def nativeCopy(dest: String): Command[PathRef] = Task.Command {
+    val output = os.Path(dest, workspaceRoot)
+    os.makeDir.all(output / os.up)
+    os.copy.over(nativeImage().path, output)
+    if (output.toNIO.getFileSystem.supportedFileAttributeViews().contains("posix")) {
+      os.perms.set(output, "rwxr-xr-x")
+    }
+    PathRef(output)
+  }
+
+  object test extends ScalaTests {
+    override def moduleDir: os.Path = workspaceRoot
+
+    def sources: T[Seq[PathRef]] = Task.Sources("tests")
+
+    def mvnDeps: T[Seq[Dep]] = Seq(
+      mvn"org.scalameta::munit:1.3.6",
+      mvn"com.lihaoyi::ujson:4.4.3"
+    )
+
+    def testFramework: T[String] = "munit.Framework"
+  }
+
+  object bench extends ScalexModule {
+    override def moduleDir: os.Path = workspaceRoot
+
+    override def moduleDeps: Seq[JavaModule] = Seq(clibase, graph)
+
+    override def sources: T[Seq[PathRef]] = Task.Sources("src")
+
+    override def mainClass: T[Option[String]] = Some("scalex.bench")
+  }
+}

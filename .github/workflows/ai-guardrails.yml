@@ -15,43 +15,11 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: graalvm/setup-graalvm@03e8abf916fd0e281b2efe7b2da3378bb0a1d085 # v1
-        with:
-          java-version: '21'
-          distribution: 'graalvm'
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - uses: ./.github/actions/setup-scala-cli
-
-      # === COMPILE (zero warnings) ===
-      - name: Compile
-        run: |
-          OUTPUT=$(scala-cli compile src/ 2>&1)
-          echo "$OUTPUT"
-          if echo "$OUTPUT" | grep -qi warn; then
-            echo "::error::Compilation warnings detected"
-            exit 1
-          fi
-
-      # === DEPRECATIONS ===
-      - name: Check deprecations
-        run: |
-          OUTPUT=$(scala-cli compile --scalac-option "-deprecation" src/ 2>&1)
-          echo "$OUTPUT"
-          if echo "$OUTPUT" | grep -qi warn; then
-            echo "::error::Deprecation warnings detected"
-            exit 1
-          fi
-
-      # === TESTS ===
-      - name: Tests
-        run: scala-cli test src/ tests/
-
       # === DEPENDENCY CHANGE ALERT ===
       - name: Dependency change alert
         run: |
-          if git diff origin/main --name-only | grep -qE "^src/project\.scala$"; then
-            echo "::warning::Dependency change detected in src/project.scala — requires manual review (Invariant #2)"
+          if git diff origin/main --name-only | grep -qE "^build\.mill$"; then
+            echo "::warning::Dependency change detected in build.mill — requires manual review (Invariant #2)"
           fi
 
       # === SECRETS SCAN ===

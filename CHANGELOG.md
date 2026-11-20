@@ -4,6 +4,14 @@ All notable changes to agent4s are documented here.
 
 ## [Unreleased]
 
+## [0.6.0] — 2026-11-20
+
+- Rebased the engine on Scalex 1.41.0. Symbol diffs detect changed method bodies, ignore line shifts, and report invalid Git references as errors. Output-limited JSON queries return a complete JSON document.
+- Updated the native Java parser and cache format. The first query rebuilds older caches. The build uses Mill, Scala 3.9 and GraalVM Community 24.0.2.
+- Preserved SemanticDB rename and call graphs, static checks, scaffolding, all 14 skills and the Windows executable. MCP refreshes the workspace between calls and lists the fork's tools. Claude Code and Codex share the agent4s plugin directory.
+
+## [0.5.2]
+
 - Added a checkout-level `./agent4s` launcher and a first lookup you can repeat through the CLI or MCP.
 - Shortened the main Claude Code skill and grouped the command reference by task. Setup records project notes on request. Doctor distinguishes source indexing from optional compiler metadata.
 - Plugin 0.5.2 uses the new agent4s wordmark in the README and Claude Code. Its launcher pins the v0.5.0 native release. Source builds report 0.5.1, and the release workflow checks each executable against its tag.

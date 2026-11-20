@@ -1,0 +1,20 @@
+{
+  "name": "agent4s-marketplace",
+  "interface": {
+    "displayName": "agent4s"
+  },
+  "plugins": [
+    {
+      "name": "agent4s",
+      "source": {
+        "source": "local",
+        "path": "./plugins/agent4s"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}

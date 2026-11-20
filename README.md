@@ -20,6 +20,15 @@ Start a Claude Code session in a Scala repository and try this prompt.
 
 In agent4s's own repository, you should find the CLI's `main` in `src/cli.scala` and the benchmark's `bench` in `src/bench.scala`. To repeat the lookup below in chat, ask “Where is `WorkspaceIndex` defined?” Run `/agent4s:setup` if you want Claude to save project-specific notes in `CLAUDE.md`.
 
+## Start in Codex
+
+```sh
+codex plugin marketplace add scala-digest/agent4s
+codex plugin add agent4s@agent4s-marketplace
+```
+
+Open a new session in your Scala project and ask “Use agent4s to find the entry points and show their source locations.”
+
 ## Try the CLI
 
 On macOS (Apple Silicon or Intel) and Linux x86-64, the launcher downloads and verifies the pinned native binary on first use. You need Git, Bash, curl and shasum.
@@ -30,13 +39,7 @@ cd agent4s
 ./agent4s def WorkspaceIndex --verbose
 ```
 
-You should see the declaration from this repository.
-
-```text
-Definition of "WorkspaceIndex":
-  class     WorkspaceIndex — src/index.scala:198
-             class WorkspaceIndex
-```
+The result includes the class declaration in `src/index/workspace.scala` and its line number.
 
 Use `-w` to point the launcher at a different checkout. Replace the path below with the root of your Scala project.
 
@@ -46,7 +49,7 @@ Use `-w` to point the launcher at a different checkout. Replace the path below w
 
 On Windows x64, download `scalex-windows-x64.exe` and run it from PowerShell, for example `.\scalex-windows-x64.exe overview --concise`. Release assets use the engine's original name, `scalex`. The launcher pins v0.5.0, whose executable prints `0.1.0` for `--version`. [Native downloads](https://github.com/scala-digest/agent4s/releases)
 
-To run the current source with Scala CLI and JDK 21, use `scala-cli --power run src/ -- def WorkspaceIndex` in this checkout.
+To run from source in this checkout, use `./mill run def WorkspaceIndex` or `mill.bat run def WorkspaceIndex` on Windows.
 
 ## Choose a query
 

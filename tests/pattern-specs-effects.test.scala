@@ -1,26 +1,35 @@
-import munit.FunSuite
-import java.nio.file.{Files, Path}
-import scala.jdk.CollectionConverters.*
+package scalex
+
+import scalex.commands.*
+import scalex.index.*
+
+import java.nio.file.Files
 
 // ── Meta-fuzzing: PatternSpec tests — Effect + Concurrency patterns ────────────
 
-class PatternSpecEffectsSuite extends ScalexTestBase:
+class PatternSpecEffectsSuite extends Agent4sTestBase {
 
-  private def scanForPattern(code: String, pattern: BugPattern): List[BugFinding] =
+  private def scanForPattern(code: String, pattern: BugPattern): List[BugFinding] = {
     val fileName = s"pspec-eff-${pattern.toString.toLowerCase}.scala"
     val testFile = workspace.resolve(fileName)
     Files.writeString(testFile, s"object PSpecEffHelper {\n$code\n}")
     run("git", "add", fileName)
-    try
-      val idx = WorkspaceIndex(workspace, needBlooms = false)
-      idx.index()
-      val ctx = CommandContext(idx = idx, workspace = workspace, limit = 0, noTaint = true,
-        pathFilter = Some(fileName))
-      cmdBugHunt(Nil, ctx) match
+    try {
+      val idx = WorkspaceIndex.load(workspace, needBlooms = false)
+
+      val ctx = CommandContext(
+        idx = idx,
+        workspace = workspace,
+        output = OutputOptions(limit = 0),
+        bugHunt = BugHuntOptions(noTaint = true),
+        filters = FiltersOptions(pathFilter = Some(fileName))
+      )
+      cmdBugHunt(Nil, ctx) match {
         case r: CmdResult.BugHuntReport => r.findings.filter(_.pattern == pattern)
-        case _ => Nil
-    finally
-      run("git", "rm", "-f", fileName)
+        case _                          => Nil
+      }
+    } finally run("git", "rm", "-f", fileName)
+  }
 
   // ── ThrowInZioSucceed ─────────────────────────────────────────────────────────
 
@@ -248,3 +257,4 @@ class PatternSpecEffectsSuite extends ScalexTestBase:
     )
     assertEquals(findings.size, 0, "Immutable List in object must not trigger MutableShared")
   }
+}

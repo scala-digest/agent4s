@@ -7,9 +7,9 @@ Finish a task: full verification, commit, PR, cleanup.
 ## Steps
 
 1. Run full verification:
-   - Compile: `scala-cli compile src/` — zero warnings
-   - Deprecations: `scala-cli compile --scalac-option "-deprecation" src/` — zero warnings
-   - Tests: `scala-cli test src/ tests/` — all green
+   - Compile: `./mill compile` — zero warnings
+   - Deprecations: `./mill compile` — zero warnings
+   - Tests: `./mill test` — all green
 
 2. If anything fails — fix immediately (up to 3 iterations)
 
