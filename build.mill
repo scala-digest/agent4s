@@ -52,6 +52,13 @@ object `package` extends ScalexModule, NativeImageModule {
     else { Seq("-march=native") }
   }
 
+  // native-image.cmd interprets a pipe in Mill's combined resource regex as a shell pipeline.
+  override def nativeIncludedResourcesImageOptions: T[Seq[String]] = Task {
+    nativeIncludedResources().map { resource =>
+      "-H:IncludeResources=" + java.util.regex.Pattern.quote(resource.replace('\\', '/'))
+    }
+  }
+
   override def nativeImageOptions: T[Seq[String]] = Task {
     super.nativeImageOptions() ++ Seq(
       "--no-fallback",
