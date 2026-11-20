@@ -12,7 +12,7 @@
       "name": "agent4s",
       "source": "./plugins/agent4s",
       "description": "Find definitions, implementations and usages in Git-tracked Scala and Java source. Trace calls, review static findings and preview renames before building the project.",
-      "version": "0.5.1",
+      "version": "0.5.2",
       "author": {
         "name": "scala-digest"
       },
