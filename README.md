@@ -1,6 +1,4 @@
-# agent4s
-
-<img src="docs/vulture.png" align="right" width="96" alt="">
+# <img src="plugins/agent4s/.claude-plugin/icon.png" alt="agent4s" width="360">
 
 Use agent4s to find a definition in Scala or Java, see who implements a trait, or preview the edits for a rename. It reads Git-tracked source files and returns file paths and line numbers. You can query a freshly cloned project before compiling it.
 

@@ -236,7 +236,6 @@ When adding or changing commands/flags in `src/cli.scala`:
 - Update `docs/ROADMAP.md`
 - Update `CHANGELOG.md`
 - Update `README.md` (commands block, Coding-Agent-Friendly Features, "Use it" examples). README does NOT duplicate the options table — it links to SKILL.md
-- Update `site/index.html` (command grid, command count heading)
 
 ## Gotchas
 

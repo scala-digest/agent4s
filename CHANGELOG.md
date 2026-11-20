@@ -6,7 +6,7 @@ All notable changes to agent4s are documented here.
 
 - Added a checkout-level `./agent4s` launcher and a first lookup you can repeat through the CLI or MCP.
 - Shortened the main Claude Code skill and grouped the command reference by task. Setup records project notes on request. Doctor distinguishes source indexing from optional compiler metadata.
-- Updated the plugin to 0.5.1. It runs the pinned v0.5.0 native release. New source builds report 0.5.1, and the release workflow checks the executable's version against its tag.
+- Plugin 0.5.2 uses the new agent4s wordmark in the README and Claude Code. Its launcher pins the v0.5.0 native release. Source builds report 0.5.1, and the release workflow checks each executable against its tag.
 
 ## [0.5.0] — 2026-03-31
 
