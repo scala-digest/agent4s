@@ -4,21 +4,21 @@ class Agent4s < Formula
   desc "Scala superpowers for AI coding agents — 37 commands, no build server"
   homepage "https://github.com/scala-digest/agent4s"
   license "MIT"
-  version "0.5.0"
+  version "0.6.0"
 
   on_macos do
     if Hardware::CPU.arm?
       url "https://github.com/scala-digest/agent4s/releases/download/v#{version}/scalex-macos-arm64"
-      sha256 "PLACEHOLDER_SHA256_MACOS_ARM64"
+      sha256 "fe2d4f115e1e1234a818897d82a43785946c0037d42a99feac17bda2e14d0647"
     else
       url "https://github.com/scala-digest/agent4s/releases/download/v#{version}/scalex-macos-x64"
-      sha256 "PLACEHOLDER_SHA256_MACOS_X64"
+      sha256 "a1ae49c97e85032cb8ce7baa0af343e25cea5dedda156305657687085933c9b9"
     end
   end
 
   on_linux do
     url "https://github.com/scala-digest/agent4s/releases/download/v#{version}/scalex-linux-x64"
-    sha256 "PLACEHOLDER_SHA256_LINUX_X64"
+    sha256 "d88d62db8e93d8f21ef66764264a0df56f758f00cbae6e46f0a54b7c6bde04c4"
   end
 
   def install

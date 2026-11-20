@@ -7,13 +7,14 @@ if [ -z "${BASH_VERSION:-}" ] && [ -f "$0" ]; then
 fi
 set -euo pipefail
 
-EXPECTED_VERSION="0.5.0"
+EXPECTED_VERSION="0.6.0"
 REPO="scala-digest/agent4s"
 
 # Expected SHA-256 checksums for each artifact (updated each release alongside EXPECTED_VERSION)
-CHECKSUM_scalex_macos_arm64="af500a165987943b9a04439a9ad302453eb5342a0698e2190570dad84625f45e"
-CHECKSUM_scalex_macos_x64="50d0eeb367c594ea4ae93a369c9d87a4d88208dfe35a33d48418340474edfecc"
-CHECKSUM_scalex_linux_x64="6532b4ede408f079b9c68532f15a75fd73e6af488b010cad98b0d651488fe4cf"
+CHECKSUM_scalex_macos_arm64="fe2d4f115e1e1234a818897d82a43785946c0037d42a99feac17bda2e14d0647"
+CHECKSUM_scalex_macos_x64="a1ae49c97e85032cb8ce7baa0af343e25cea5dedda156305657687085933c9b9"
+CHECKSUM_scalex_linux_x64="d88d62db8e93d8f21ef66764264a0df56f758f00cbae6e46f0a54b7c6bde04c4"
+CHECKSUM_scalex_windows_x64="5a148252071d320fc76a2c010ffdfc047cbb5acd40121b76765047638e3a9f2c"
 
 # Cache location: follow XDG spec
 CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/agent4s"
@@ -24,6 +25,7 @@ case "$OS-$ARCH" in
   Darwin-arm64)  ARTIFACT="scalex-macos-arm64" ;;
   Darwin-x86_64) ARTIFACT="scalex-macos-x64" ;;
   Linux-x86_64)  ARTIFACT="scalex-linux-x64" ;;
+  MINGW*-x86_64|MSYS*-x86_64|CYGWIN*-x86_64) ARTIFACT="scalex-windows-x64.exe" ;;
   *) echo "agent4s: unsupported launcher platform $OS-$ARCH. See https://github.com/${REPO}/releases for native downloads." >&2; exit 1 ;;
 esac
 
@@ -43,23 +45,25 @@ trap 'rm -f "$TMP"' EXIT
 
 BASE_URL="https://github.com/${REPO}/releases/download/v${EXPECTED_VERSION}"
 
-curl -fsSL -o "$TMP" "${BASE_URL}/${ARTIFACT}" || {
+curl -fsSL --retry 3 -o "$TMP" "${BASE_URL}/${ARTIFACT}" || {
   echo "agent4s: download failed. Visit https://github.com/${REPO}/releases" >&2
   exit 1
 }
 
 # Verify checksum
-CHECKSUM_VAR="CHECKSUM_${ARTIFACT//-/_}"
-EXPECTED_HASH="${!CHECKSUM_VAR}"
-if [ -n "$EXPECTED_HASH" ]; then
-  ACTUAL_HASH=$(shasum -a 256 "$TMP" | awk '{print $1}')
-  if [ "$ACTUAL_HASH" != "$EXPECTED_HASH" ]; then
-    echo "agent4s: checksum verification failed for $ARTIFACT" >&2
-    echo "  expected: $EXPECTED_HASH" >&2
-    echo "  actual:   $ACTUAL_HASH" >&2
-    echo "  The downloaded binary may have been tampered with." >&2
-    exit 1
-  fi
+artifact_base=${ARTIFACT%.exe}
+checksum_var="CHECKSUM_${artifact_base//-/_}"
+expected_hash="${!checksum_var}"
+if command -v sha256sum >/dev/null 2>&1; then
+  actual_hash=$(sha256sum -b < "$TMP" | awk '{print $1}')
+else
+  actual_hash=$(shasum -a 256 -b < "$TMP" | awk '{print $1}')
+fi
+if [[ "$actual_hash" != "$expected_hash" ]]; then
+  echo "agent4s: checksum verification failed for $ARTIFACT" >&2
+  echo "  expected: $expected_hash" >&2
+  echo "  actual:   $actual_hash" >&2
+  exit 1
 fi
 
 # Install atomically

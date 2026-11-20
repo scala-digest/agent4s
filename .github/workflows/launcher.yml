@@ -1,0 +1,46 @@
+name: Plugin launcher
+
+on:
+  pull_request:
+    paths:
+      - 'agent4s'
+      - '.agents/plugins/**'
+      - '.claude-plugin/**'
+      - 'plugins/agent4s/**'
+      - '.github/workflows/launcher.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'agent4s'
+      - '.agents/plugins/**'
+      - '.claude-plugin/**'
+      - 'plugins/agent4s/**'
+      - '.github/workflows/launcher.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  install:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-26, macos-15-intel, windows-2022]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Install the pinned CLI and start MCP
+        shell: bash
+        run: |
+          set -eu
+          if [[ "${{ matrix.os }}" == "macos-26" ]]; then
+            [[ "$(uname -m)" == arm64 ]]
+          fi
+          launcher=plugins/agent4s/skills/agent4s/scripts/scalex-cli
+          export XDG_CACHE_HOME="$RUNNER_TEMP/agent4s plugin cache"
+          expected=$(sed -n 's/^EXPECTED_VERSION="\([^"]*\)"$/\1/p' "$launcher")
+          actual=$(bash "$launcher" --version)
+          [[ "${actual%$'\r'}" == "$expected" ]]
+          bash ./agent4s def WorkspaceIndex --json | jq -e 'tostring | contains("WorkspaceIndex")'
+          printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' |
+            bash "$launcher" mcp | jq -e --arg version "$expected" '.result.serverInfo.version == $version'

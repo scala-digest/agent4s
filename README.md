@@ -4,7 +4,7 @@ Use agent4s to find a definition in Scala or Java, see who implements a trait, o
 
 ## Start in Claude Code
 
-The plugin launcher supports macOS (Apple Silicon or Intel) and Linux x86-64. On Windows x64, use the native CLI or MCP server below. Install the plugin from your terminal with Claude Code 2.1.292 or later.
+The launcher supports macOS (Apple Silicon or Intel), Linux x86-64 and Windows x64 with Git Bash. Install the plugin from your terminal with Claude Code 2.1.292 or later.
 
 ```sh
 claude plugin install agent4s --marketplace scala-digest/agent4s
@@ -31,7 +31,7 @@ Open a new session in your Scala project and ask “Use agent4s to find the entr
 
 ## Try the CLI
 
-On macOS (Apple Silicon or Intel) and Linux x86-64, the launcher downloads and verifies the pinned native binary on first use. You need Git, Bash, curl and shasum.
+The launcher downloads and verifies the pinned native binary on first use. You need Git, Bash, curl and either sha256sum or shasum. On Windows, run the launcher from Git Bash.
 
 ```sh
 git clone https://github.com/scala-digest/agent4s.git
@@ -47,7 +47,7 @@ Use `-w` to point the launcher at a different checkout. Replace the path below w
 ./agent4s overview --concise -w /path/to/your/project
 ```
 
-On Windows x64, download `scalex-windows-x64.exe` and run it from PowerShell, for example `.\scalex-windows-x64.exe overview --concise`. Release assets use the engine's original name, `scalex`. The launcher pins v0.5.0, whose executable prints `0.1.0` for `--version`. [Native downloads](https://github.com/scala-digest/agent4s/releases)
+On Windows x64, download `scalex-windows-x64.exe` and run it from PowerShell, for example `.\scalex-windows-x64.exe overview --concise`. Release assets use the engine's original name, `scalex`. The launcher pins agent4s v0.6.0, built on Scalex 1.41.0. Run `./agent4s --version` to check the engine. [Native downloads](https://github.com/scala-digest/agent4s/releases)
 
 To run from source in this checkout, use `./mill run def WorkspaceIndex` or `mill.bat run def WorkspaceIndex` on Windows.
 
