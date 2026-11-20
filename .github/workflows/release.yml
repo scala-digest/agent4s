@@ -125,10 +125,10 @@ jobs:
 
       - name: Generate combined checksums
         run: |
-          cd artifacts
-          shasum -a 256 */scalex-macos-arm64 */scalex-macos-x64 */scalex-linux-x64 */scalex-windows-x64.exe | sed 's|[^/]*/||' > ../checksums.txt
-          cd ..
-          echo "Generated checksums.txt:"
+          for asset in scalex-macos-arm64 scalex-macos-x64 scalex-linux-x64 scalex-windows-x64.exe; do
+            (cd "artifacts/$asset" && sha256sum --check "$asset.sha256")
+            cat "artifacts/$asset/$asset.sha256" >> checksums.txt
+          done
           cat checksums.txt
 
       - name: Attest build provenance
