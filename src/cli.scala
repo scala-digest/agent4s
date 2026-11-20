@@ -244,13 +244,20 @@ private def flagsToContext(f: ParsedFlags, idx: WorkspaceIndex, workspace: Path,
 
   f.cleanArgs match
     case Nil | List("help") =>
-      println("""Scalex — Scala code intelligence for coding agents
+      println("""agent4s — navigate Git-tracked Scala and Java source
+        |
+        |Try these commands in the agent4s checkout:
+        |  ./agent4s def WorkspaceIndex --verbose
+        |  ./agent4s overview --concise
+        |
+        |The examples below use the native engine name, scalex.
+        |In this checkout, run ./agent4s followed by the same arguments.
         |
         |Commands:
         |  scalex search <query>           Search symbols by name          (aka: find symbol)
         |  scalex def <symbol>             Where is this symbol defined?   (aka: find definition)
         |  scalex impl <trait>             Who extends this trait/class?   (aka: find implementations)
-        |  scalex refs <symbol>            Who uses this symbol?           (aka: find references)
+        |  scalex refs <symbol>            Find name matches in source     (aka: find references)
         |  scalex imports <symbol>         Who imports this symbol?        (aka: import graph)
         |  scalex members <symbol>         What's inside this class/trait? (aka: list members)
         |  scalex doc <symbol>             Show scaladoc for a symbol      (aka: show docs)
@@ -272,11 +279,11 @@ private def flagsToContext(f: ParsedFlags, idx: WorkspaceIndex, workspace: Path,
         |  scalex diff <git-ref>           Symbol-level diff vs git ref    (aka: symbol diff)
         |  scalex ast-pattern              Structural AST search           (aka: pattern search)
         |  scalex tests                    List test cases structurally    (aka: find tests)
-        |  scalex coverage <symbol>        Is this symbol tested?          (aka: test coverage)
+        |  scalex coverage <symbol>        Which test files mention this name?
         |  scalex api <package>            Public API surface of a package (aka: exported symbols)
         |  scalex summary <package>        Sub-packages with symbol counts   (aka: package breakdown)
         |  scalex entrypoints              Find @main, def main, extends App, test suites
-        |  scalex rename <Old> <New>       Rename symbol across codebase      (aka: refactor rename)
+        |  scalex rename <Old> <New>       Preview edits for a symbol rename
         |  scalex unused [package]         Find symbols with zero external refs (aka: dead code)
         |  scalex call-graph <method>      Show what a method calls and who calls it
         |  scalex scaffold impl <class>    Generate stubs for unimplemented abstract members
@@ -348,7 +355,8 @@ private def flagsToContext(f: ParsedFlags, idx: WorkspaceIndex, workspace: Path,
         |  --takes TYPE          Search: filter to symbols whose signature takes TYPE
         |  --max-output N        Truncate output at N characters (0 = unlimited); works on all commands
         |  --in-package PKG      Filter results to files whose package matches PKG prefix
-        |  --semantic            Refs/rename: use SemanticDB for type-aware refs (requires compiled project)
+        |  --semantic            Use SemanticDB for rename and outgoing call-graph edges
+        |  --apply               Write the edits from rename (default: preview)
         |  --framework NAME     Scaffold test: test framework (munit, scalatest, zio-test; default: munit)
         |  --severity LEVEL     Bug-hunt: minimum severity (critical, high, medium; default: all)
         |  --bug-category CAT   Bug-hunt: filter by category (security, type-safety, concurrency, resource, effect)
@@ -356,9 +364,8 @@ private def flagsToContext(f: ParsedFlags, idx: WorkspaceIndex, workspace: Path,
         |  --no-taint           Bug-hunt: disable taint analysis (faster, more false positives)
         |  --timings             Print per-phase timing breakdown to stderr
         |
-        |All commands accept an optional [workspace] positional arg or -w flag (default: current directory).
-        |First run indexes the project (~3s for 14k files). Subsequent runs use cache (~300ms).
-        |Java files (.java) are indexed via JavaParser AST (class/interface/enum/record/method/field).
+        |Run queries in the project root or select it with -w /path/to/project.
+        |The first query builds .scalex/index.bin from tracked .scala and .java files.
         |""".stripMargin)
 
     case "batch" :: rest =>

@@ -1,81 +1,32 @@
-# Agent Workflows
+# Working with a Scala project
 
-These are multi-step recipes. When the user asks for a complex task, orchestrate these steps autonomously — don't ask for permission at each step.
+Run each query with the bundled launcher in the target repository or pass its root with `-w`. Choose the steps that answer the user's question.
 
-## Explore unfamiliar codebase
+## Explore an unfamiliar checkout
 
-When dropped into a new Scala project, build a mental model before doing anything else:
+Start with `overview --concise` for the package names and frequently extended types. Use `entrypoints --no-tests` to find where application code starts. Pick an entry point, read its body and follow the types it uses with `explain Type --related`.
 
-1. `overview --concise` → fixed-size summary: packages, key types, dependency stats
-2. `entrypoints` → where does execution start?
-3. `summary <top-package>` → sub-package structure
-4. For the 2-3 most important types: `explain <Type> --related` → understand the core domain
+## Assess the impact of a change
 
-## Safe rename
+Locate the declaration with `def Type --verbose`. Use `impl Type` for an interface change, or `call-graph method --in Owner` for a method change. `refs Type --top 10` points you to files with the most name matches. Read the affected source lines and the tests returned by `coverage Type`.
 
-When asked to rename a symbol:
+For a package boundary, use `api com.example --used-by com.consumer` to see which symbols the consumer imports. `summary com.example` gives the subpackage structure.
 
-1. `rename OldName NewName` → get the full edit plan with categories
-2. Review the edits — check for false positives (comments, string literals)
-3. Apply each edit using the Edit tool, file by file
-4. `refs OldName --count` → verify zero remaining references (should be empty)
-5. If not empty, investigate remaining references
+## Rename a symbol
 
-## Impact analysis before changes
-
-Before modifying a type or method:
-
-1. `refs Symbol --count` → quick triage: how many files are affected?
-2. `call-graph method --in Owner` → what does this method touch? who calls it?
-3. `hierarchy Symbol --depth 2` → inheritance impact
-4. `imports Symbol` → who imports this? (including wildcards)
-5. Decide scope: is this a safe local change or a cross-cutting refactor?
+1. Use `def OldName --verbose` to identify the intended declaration. Check its package and owner if there are several matches.
+2. Run `rename OldName NewName` to preview. If the project has current SemanticDB output, use `--semantic` and read stderr to see which mode the engine used.
+3. Inspect the old and new lines. If the user requested the change and the preview matches its scope, repeat the command with `--apply`. Edit individual lines when the preview includes another symbol.
+4. Review the Git diff and run the relevant tests. Check remaining matches of the old name against their declarations.
 
 ## Implement a trait
 
-When asked to implement a trait or fill in abstract members:
+Use `explain TraitName` for its contract, then `scaffold impl ClassName` for the methods the class still needs to implement. To see an existing implementation, run `overrides method --of TraitName --body`. If tests are part of the change, `scaffold test ClassName` prints a starting point.
 
-1. `scaffold impl MyClass` → get the stubs with resolved type parameters
-2. `explain ParentTrait --verbose` → understand what each method should do
-3. For complex methods: `overrides methodName --of ParentTrait --body` → see how others implement it
-4. Write the implementations
-5. `scaffold test MyClass` → generate test skeleton, then fill in real tests
+## Investigate a behavior
 
-## Find and remove dead code
+Find the method with `search` or `def Owner.method`. Read `body method --in Owner --imports`, then follow an outgoing call or inspect a candidate caller. Use `tests "part of the test name"` to read a matching case.
 
-1. `unused com.example` → find candidates
-2. For each candidate: `refs CandidateName --count` → double-check (unused only checks external refs)
-3. `coverage CandidateName` → is it tested? (tests referencing unused code = test-only code)
-4. Remove confirmed dead code, update tests
+## Review unused code
 
-## Bug investigation
-
-When investigating a bug in a Scala codebase:
-
-1. `search <keyword>` → find relevant types
-2. `explain <Type> --related` → understand the type and its connections
-3. `call-graph <suspectMethod> --in Owner` → trace the execution flow
-4. `body <method> --in Owner --imports` → read the actual code with imports
-5. `refs <method> --count` → how is this called? from where?
-6. Narrow down: `grep "pattern" --in ClassName --each-method` → which methods have the pattern?
-
-## Refactor workflow
-
-When asked to refactor (extract, rename, restructure):
-
-1. `explain <Target> --inherited --related` → full picture of the type
-2. `refs <Target> --count` → measure impact
-3. `unused <package>` → find dead code to clean up while refactoring
-4. Make the changes (rename, scaffold, restructure)
-5. `refs OldName --count` → verify clean rename (should be 0)
-6. `coverage <NewName>` → verify test coverage still applies
-
-## Package audit
-
-When asked to assess a package's health:
-
-1. `summary <package>` → structure overview
-2. `api <package>` → what's exported? what's truly public?
-3. `unused <package>` → dead code
-4. `ast-pattern --extends <BaseTrait> --has-method <required>` → structural compliance check
-5. `api <package> --used-by <consumer-package>` → coupling analysis
+`unused com.example` lists candidates. Check uses inside the declaring file, test mentions and consumers outside the checkout. For a public API, also check how clients load the type. Remove a declaration only when removal is in scope and these checks support it.

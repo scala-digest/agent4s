@@ -57,6 +57,22 @@ jobs:
         shell: bash
         run: ./build-native.sh "${{ matrix.artifact }}.exe"
 
+      - name: Check binary version against release tag
+        shell: bash
+        env:
+          ARTIFACT: ${{ matrix.artifact }}
+        run: |
+          binary="./$ARTIFACT"
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            binary+=".exe"
+          fi
+          actual=$("$binary" --version)
+          actual=${actual%$'\r'}
+          if [[ "v$actual" != "$GITHUB_REF_NAME" ]]; then
+            echo "::error::$ARTIFACT reports $actual for release $GITHUB_REF_NAME"
+            exit 1
+          fi
+
       - name: Test binary (Unix)
         if: runner.os != 'Windows'
         run: |
