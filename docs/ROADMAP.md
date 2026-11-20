@@ -36,7 +36,6 @@
 - [ ] **Publish to Claude Code marketplace** — #1 blocker for adoption. Only 834 plugins total; first-mover advantage for Scala
 - [x] **MCP quick-start templates** — copy-paste configs for Cursor, Windsurf, Cline in README
 - [x] **Windows native image** — expand platform coverage from macOS+Linux to include Windows x64 (GraalVM)
-- [ ] **Landing page SEO** — update `docs/site/index.html` with meta tags, structured data, "Scala AI tool" keywords
 - [ ] **Scala community launch** — post on Scala Contributors, r/scala, Scala Discord, X/Twitter. Demo: "from git clone to finding dead code in 5 seconds"
 - [x] **Homebrew formula** — `brew install scala-digest/tap/agent4s` for macOS/Linux
 - [x] **GitHub Action** — `scala-digest/agent4s-action@v1` for CI pipelines (unused code check, bug-hunt on PRs)

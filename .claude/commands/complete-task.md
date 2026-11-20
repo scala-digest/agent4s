@@ -25,7 +25,6 @@ Finish a task: full verification, commit, PR, cleanup.
    - `docs/ROADMAP.md` updated
    - `CHANGELOG.md` updated
    - `README.md` updated
-   - `docs/site/index.html` updated (if applicable)
 
 5. Commit with descriptive message
 
