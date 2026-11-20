@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: scala-digest/agent4s/action@v0.5.0
+      - uses: scala-digest/agent4s/action@v0.6.0
         with:
           command: bug-hunt
           args: '--severity high --no-tests'
@@ -24,7 +24,7 @@ jobs:
 ### Dead code check
 
 ```yaml
-      - uses: scala-digest/agent4s/action@v0.5.0
+      - uses: scala-digest/agent4s/action@v0.6.0
         with:
           command: unused
           args: 'com.myproject --kind class'
@@ -41,13 +41,13 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Bug hunt (critical)
-        uses: scala-digest/agent4s/action@v0.5.0
+        uses: scala-digest/agent4s/action@v0.6.0
         with:
           command: bug-hunt
           args: '--severity critical --no-tests'
 
       - name: Unused code report
-        uses: scala-digest/agent4s/action@v0.5.0
+        uses: scala-digest/agent4s/action@v0.6.0
         with:
           command: unused
           args: 'com.myproject'
@@ -60,7 +60,7 @@ jobs:
 |-------|-------------|----------|---------|
 | `command` | Command to run: `bug-hunt`, `unused`, or any agent4s command | Yes | — |
 | `args` | Additional arguments | No | `''` |
-| `version` | agent4s version (e.g. `0.5.0`) | No | `latest` |
+| `version` | agent4s version (e.g. `0.6.0`) | No | `latest` |
 | `workspace` | Path to Scala project | No | `.` |
 | `fail-on-findings` | Fail step if findings reported | No | `true` |
 
