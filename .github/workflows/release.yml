@@ -15,6 +15,8 @@ env:
 
 jobs:
   build:
+    env:
+      COURSIER_REPOSITORIES: https://repo.maven.apache.org/maven2
     strategy:
       fail-fast: false
       matrix:
@@ -39,10 +41,7 @@ jobs:
           distribution: 'graalvm'
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: VirtusLab/scala-cli-setup@59e308800210b0414d2d7190068c80021e1b3e5d # v1
-        with:
-          power: true
-          jvm: graalvm-java21
+      - uses: ./.github/actions/setup-scala-cli
 
       - name: Configure Visual Studio (Windows)
         if: runner.os == 'Windows'
@@ -56,6 +55,22 @@ jobs:
         if: runner.os == 'Windows'
         shell: bash
         run: ./build-native.sh "${{ matrix.artifact }}.exe"
+
+      - name: Check binary version against release tag
+        shell: bash
+        env:
+          ARTIFACT: ${{ matrix.artifact }}
+        run: |
+          binary="./$ARTIFACT"
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            binary+=".exe"
+          fi
+          actual=$("$binary" --version)
+          actual=${actual%$'\r'}
+          if [[ "v$actual" != "$GITHUB_REF_NAME" ]]; then
+            echo "::error::$ARTIFACT reports $actual for release $GITHUB_REF_NAME"
+            exit 1
+          fi
 
       - name: Test binary (Unix)
         if: runner.os != 'Windows'

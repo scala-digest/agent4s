@@ -8,13 +8,13 @@ git clone https://github.com/scala-digest/agent4s.git
 cd agent4s
 
 # Run from source
-scala-cli run src/ -- search . MyClass
+scala-cli --power run src/ -- def WorkspaceIndex --verbose
 
 # Run tests
-scala-cli test src/ tests/
+scala-cli --power test src/ tests/
 
 # Run a single test
-scala-cli test src/ tests/ -- '*rename*'
+scala-cli --power test src/ tests/ -- '*rename*'
 
 # Build native image (requires GraalVM)
 ./build-native.sh
@@ -59,14 +59,13 @@ tests/                        # Test suite (528 tests)
 - **Named tuples only** — never `(String, Int)`, always `(name: String, count: Int)`
 - **No `return` statements** — use `scala.util.boundary` + `break` for early exit
 - **No backwards compatibility** — consistency > not breaking hypothetical consumers
-- **Zero warnings policy** — `scala-cli compile src/ 2>&1 | grep -i warn` must be empty
-- **Zero deprecations** — `scala-cli compile --scalac-option "-deprecation" src/ 2>&1 | grep -i warn` must be empty
+- **Zero warnings policy** — compile the sources and check the compiler output for warnings.
+- **Zero deprecations** — enable deprecation diagnostics when checking the build.
 
 ## Before Submitting
 
 ```bash
-# Must all pass:
-scala-cli compile src/ 2>&1 | grep -i warn          # zero warnings
-scala-cli compile --scalac-option "-deprecation" src/ 2>&1 | grep -i warn  # zero deprecations
-scala-cli test src/ tests/                           # 528+ tests passing
+scala-cli --power compile src/
+scala-cli --power compile --scalac-option "-deprecation" src/
+scala-cli --power test src/ tests/
 ```

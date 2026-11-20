@@ -1,96 +1,22 @@
 ---
 name: doctor
-description: "Diagnostic check for agent4s. Verifies scalex binary works, index builds correctly, SemanticDB availability, and CLAUDE.md configuration. Run when something seems broken."
+description: "Diagnose an agent4s installation or an empty Scala lookup. Check the native launcher, tracked sources, index statistics and optional project configuration."
 disable-model-invocation: true
 ---
 
-You are running diagnostics for agent4s in this project. Run each check and report a status summary.
+# Diagnose agent4s
 
-## Locate scalex-cli
-
-The scalex-cli bootstrap script is at the path relative to this skill:
-`../agent4s/scripts/scalex-cli`
-
-Resolve the absolute path. If it doesn't exist, report FAIL immediately and suggest reinstalling the plugin.
-
-## Check 1: Binary
+Run these checks from the root of the project the user is querying. Keep stdout, stderr and the exit status so a failed command is visible.
 
 ```bash
-bash "<scalex-cli-path>" --version
+bash "${CLAUDE_PLUGIN_ROOT}/skills/agent4s/scripts/scalex-cli" --version
+git rev-parse --show-toplevel
+bash "${CLAUDE_PLUGIN_ROOT}/skills/agent4s/scripts/scalex-cli" index --json
 ```
 
-- **OK**: prints version number (e.g. `1.38.0`)
-- **FAIL**: error or no output
+- **Launcher.** A successful exit and a version string show the engine can start. The published v0.5.0 binary prints `0.1.0`. Use the launcher's `EXPECTED_VERSION` for the release tag and `claude plugin list` for the installed plugin version. For download failures, report the failing URL or checksum error. For a platform error, use the listed release executable or run from source.
+- **Source index.** Report `fileCount`, `symbolCount` and `parseFailures` from the JSON. If the user expected a missing file, check its path with `git ls-files -- path/to/File.scala`. If a cached declaration differs from the working tree, inspect the source and the Git diff. Cached symbols use staged Git object IDs.
+- **Compiler metadata.** Check for `.semanticdb` files under `META-INF/semanticdb` if the user needs type-aware results. To test whether the engine can use them, choose a real type from the compiled module and preview `rename TypeName ProbeName --semantic` with the launcher. Read stderr for semantic resolution or a text fallback. Leave the preview unapplied.
+- **Project notes.** Check for the paired `<!-- agent4s:start -->` and `<!-- agent4s:end -->` markers in `CLAUDE.md`. If present, compare the recorded build tool and metadata status with what you found.
 
-If FAIL, check:
-- Permission denied → suggest `chmod +x <scalex-cli-path>`
-- macOS quarantine → check with `xattr -l ~/.cache/agent4s/* 2>/dev/null | grep quarantine` and suggest `xattr -d com.apple.quarantine ~/.cache/agent4s/*`
-- Binary not found → the bootstrap script should auto-download; run `bash "<scalex-cli-path>" --version` again and check stderr for download errors
-
-## Check 2: Index
-
-```bash
-bash "<scalex-cli-path>" overview -w "<project-root>" 2>&1 | head -5
-```
-
-- **OK**: shows file count, symbol count (e.g. "228 files, 1791 symbols")
-- **FAIL**: error message or no Scala files found
-
-If FAIL, check:
-- Is this a git repository? (`git rev-parse --git-dir`)
-- Are there .scala files tracked by git? (`git ls-files '*.scala' | head -5`)
-- Parse errors in Scala files may cause partial indexing — this is OK, scalex skips unparseable files
-
-## Check 3: SemanticDB
-
-```bash
-find "<project-root>" -name "*.semanticdb" -path "*/META-INF/*" 2>/dev/null | wc -l
-```
-
-- **OK**: N files found → SemanticDB available, `--semantic` flag works
-- **NOT CONFIGURED**: 0 files → suggest running `/agent4s:semanticdb`
-
-If OK, also verify scalex can load them:
-```bash
-bash "<scalex-cli-path>" rename TestSymbol TestSymbol --semantic -w "<project-root>" 2>&1 | head -3
-```
-Check if it says "Using semantic rename (N compiled files)" or "No SemanticDB data found".
-
-## Check 4: CLAUDE.md
-
-Read the project's CLAUDE.md and check for `<!-- agent4s:start -->` marker.
-
-- **OK**: marker found → agent4s section is configured
-- **NOT CONFIGURED**: no marker or no CLAUDE.md → suggest running `/agent4s:setup`
-
-If OK, also check if the section content is stale:
-- Does the build tool still match?
-- Does the SemanticDB status match the actual state from Check 3?
-
-## Check 5: macOS quarantine (macOS only)
-
-Only run this check on macOS (check `uname -s`):
-
-```bash
-xattr -l ~/.cache/agent4s/* 2>/dev/null | grep -c quarantine
-```
-
-- **OK**: 0 matches → no quarantine issues
-- **WARNING**: quarantine attribute found → suggest `xattr -d com.apple.quarantine ~/.cache/agent4s/*`
-
-## Summary
-
-Print a status table:
-
-```
-agent4s doctor:
-  Binary:     {OK vX.Y.Z | FAIL: reason}
-  Index:      {OK (N files, M symbols) | FAIL: reason}
-  SemanticDB: {OK (N files) | Not configured — run /agent4s:semanticdb}
-  CLAUDE.md:  {OK | Not configured — run /agent4s:setup}
-  Quarantine: {OK | WARNING: run xattr -d ...}
-```
-
-If everything is OK, print: "All checks passed. agent4s is ready."
-
-If any check failed, print the specific fix for each failure. Prioritize: Binary > Index > SemanticDB > CLAUDE.md > Quarantine.
+Report the observed values and the specific next step for any failed lookup. Mark missing compiler output and project notes as optional for source navigation. Use `/agent4s:semanticdb` for compiler setup or `/agent4s:setup` to save project notes.

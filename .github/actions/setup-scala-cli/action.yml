@@ -1,0 +1,31 @@
+name: Set up Scala CLI
+description: Install the pinned Scala CLI release using the job's JDK.
+runs:
+  using: composite
+  steps:
+    - name: Download and verify Scala CLI
+      shell: bash
+      env:
+        SCALA_CLI_VERSION: 1.19.0
+        SCALA_CLI_SHA256: 7092aad0a7a04485fe8a3fe9ef8f732d21ce3be0f60e6576e478ade03f05d38e
+      run: |
+        install_dir="$RUNNER_TEMP/agent4s-scala-cli"
+        mkdir -p "$install_dir"
+        cd "$install_dir"
+        curl -fsSL --retry 3 -o scala-cli.jar \
+          "https://github.com/VirtusLab/scala-cli/releases/download/v$SCALA_CLI_VERSION/scala-cli.jar"
+        if command -v sha256sum >/dev/null; then
+          printf '%s  scala-cli.jar\n' "$SCALA_CLI_SHA256" | sha256sum -c -
+        else
+          printf '%s  scala-cli.jar\n' "$SCALA_CLI_SHA256" | shasum -a 256 -c -
+        fi
+
+        cat > scala-cli <<'SH'
+        #!/usr/bin/env bash
+        exec java -jar "$(dirname "$0")/scala-cli.jar" --power "$@"
+        SH
+        chmod +x scala-cli
+        if [[ "$RUNNER_OS" == "Windows" ]]; then
+          printf '@echo off\r\njava -jar "%%~dp0scala-cli.jar" --power %%*\r\n' > scala-cli.bat
+        fi
+        echo "$install_dir" >> "$GITHUB_PATH"

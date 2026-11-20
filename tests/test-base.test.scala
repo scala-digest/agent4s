@@ -540,6 +540,8 @@ abstract class ScalexTestBase extends FunSuite:
 
     // Initialize git repo
     run("git", "init")
+    run("git", "config", "user.name", "agent4s tests")
+    run("git", "config", "user.email", "tests@example.invalid")
     run("git", "add", ".")
     run("git", "commit", "-m", "init")
 

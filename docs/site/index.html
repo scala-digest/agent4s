@@ -5,13 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>agent4s — Code Intelligence for Scala</title>
 
-    <meta name="description" content="Scala superpowers for AI coding agents. 35 commands for code navigation, refactoring, dead code detection, and bug hunting. No build server needed." />
-    <meta property="og:title" content="agent4s — Scala Superpowers for AI Agents" />
-    <meta property="og:description" content="35 commands. 349ms. Dead code detection, bug hunting, semantic rename, call-graph. Works in Claude Code, Cursor, Windsurf, Cline." />
+    <meta name="description" content="Find definitions, trace calls and preview renames in Git-tracked Scala and Java code." />
+    <meta property="og:title" content="agent4s — Scala and Java code navigation" />
+    <meta property="og:description" content="Find definitions, trace calls and preview renames in Git-tracked Scala and Java code." />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="agent4s — Scala Superpowers for AI Agents" />
-    <meta name="twitter:description" content="Your AI agent treats Scala like plain text. agent4s gives it 35 commands to understand your codebase in 349ms." />
+    <meta name="twitter:title" content="agent4s — Scala and Java code navigation" />
+    <meta name="twitter:description" content="Find definitions, trace calls and preview renames in Git-tracked Scala and Java code." />
 
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -149,21 +149,11 @@
         <img src="vulture.png" alt="agent4s" width="200" class="reveal" style="filter: drop-shadow(0 0 30px var(--accent-glow));">
         <h1 class="reveal">agent<span class="accent">4s</span></h1>
         <p class="title-tagline reveal">
-          Scala superpowers for AI coding agents.<br>
-          <strong>From git clone to code understanding in 349ms.</strong>
+          Find definitions, trace calls and preview renames.<br>
+          <strong>Start with the Scala or Java source in your checkout.</strong>
         </p>
-        <div class="stat-row reveal">
-          <div class="stat-item"><div class="stat-value">37</div><div class="stat-label">Commands</div></div>
-          <div class="stat-item"><div class="stat-value">528</div><div class="stat-label">Tests</div></div>
-          <div class="stat-item"><div class="stat-value">&lt;400ms</div><div class="stat-label">Warm Query</div></div>
-          <div class="stat-item"><div class="stat-value">hybrid</div><div class="stat-label">Text + Semantic</div></div>
-        </div>
-        <div class="pill-row reveal" style="margin-top: var(--content-gap)">
-          <div class="pill">MCP Native</div>
-          <div class="pill">Cursor</div>
-          <div class="pill">Windsurf</div>
-          <div class="pill">Claude Code</div>
-          <div class="pill">Cline</div>
+        <div class="cta-row reveal">
+          <a href="#install" class="cta cta-primary">Install agent4s</a>
         </div>
       </div>
     </section>
@@ -228,19 +218,19 @@
     <section class="slide content-slide grid-bg" data-slide="3">
       <span class="slide-number">03</span>
       <div class="slide-content">
-        <h2 class="reveal">What <span class="accent">no other CLI</span> can do.</h2>
+        <h2 class="reveal">Choose a <span class="accent">query</span></h2>
         <div class="card-grid reveal">
           <div class="card">
             <h3><span class="accent">rename</span> <span class="mono" style="font-size:0.7em">--semantic</span></h3>
-            <p>Type-aware rename. Two Config in different packages → only renames the right one. Word-boundary safe.</p>
+            <p>Preview edits for a compiler-resolved symbol. Check the selected declaration and the proposed lines before applying them.</p>
           </div>
           <div class="card">
             <h3><span class="accent">call-graph</span></h3>
-            <p>Bidirectional: what a method calls (callees) + who calls it (callers). With --semantic: compiler-precise callees.</p>
+            <p>Inspect outgoing calls and candidate callers. Add <span class="mono">--semantic</span> to use compiler metadata for outgoing calls.</p>
           </div>
           <div class="card">
             <h3><span class="accent">unused</span></h3>
-            <p>Dead code detection. Bloom filter pre-screen + text verification. Finds symbols with zero external refs.</p>
+            <p>List declarations with no detected references in other tracked files. Check callers outside the checkout before removing code.</p>
           </div>
           <div class="card">
             <h3><span class="accent">scaffold impl</span></h3>
@@ -251,8 +241,8 @@
             <p>One-shot: definition + doc + members + implementations + imports. Saves 4-5 tool calls.</p>
           </div>
           <div class="card">
-            <h3><span class="accent">refs</span> <span class="mono" style="font-size:0.7em">--semantic</span></h3>
-            <p>Type-aware references when SemanticDB is available. Disambiguates same-named symbols across packages.</p>
+            <h3><span class="accent">refs</span> <span class="mono" style="font-size:0.7em">--count</span></h3>
+            <p>Count source matches by category. Drop <span class="mono">--count</span> to inspect locations when two packages use the same name.</p>
           </div>
         </div>
       </div>
@@ -283,13 +273,13 @@ Call graph for <span class="t-accent">PaymentService.processPayment</span> (src/
       </div>
     </section>
 
-    <!-- ======= SLIDE 6: ALL 36 COMMANDS ======= -->
+    <!-- ======= SLIDE 6: COMMANDS ======= -->
     <section class="slide content-slide grid-bg" data-slide="5">
       <span class="slide-number">05</span>
       <div class="slide-content">
-        <h2 class="reveal"><span class="accent">37</span> commands.</h2>
+        <h2 class="reveal">CLI <span class="accent">commands</span></h2>
         <div class="cmd-grid reveal">
-          <div class="cmd cmd-new"><span class="cmd-name">rename</span><br><span class="cmd-desc">Safe rename (semantic)</span></div>
+          <div class="cmd cmd-new"><span class="cmd-name">rename</span><br><span class="cmd-desc">Preview rename edits</span></div>
           <div class="cmd cmd-new"><span class="cmd-name">call-graph</span><br><span class="cmd-desc">Bidirectional flow</span></div>
           <div class="cmd cmd-new"><span class="cmd-name">unused</span><br><span class="cmd-desc">Dead code detection</span></div>
           <div class="cmd cmd-new"><span class="cmd-name">scaffold impl</span><br><span class="cmd-desc">Override stubs</span></div>
@@ -310,7 +300,7 @@ Call graph for <span class="t-accent">PaymentService.processPayment</span> (src/
           <div class="cmd"><span class="cmd-name">mcp</span><br><span class="cmd-desc">MCP server</span></div>
         </div>
         <p class="reveal" style="color: var(--text-dim); text-align: center; font-size: var(--small-size); margin-top: 0.5em">
-          + 18 more: grep, diff, tests, coverage, ast-pattern, overrides, doc, context, batch, packages, package, summary, entrypoints, annotated, file, symbols, index, graph
+          Run <span class="mono">./agent4s help</span> for the complete command list.
         </p>
       </div>
     </section>
@@ -344,10 +334,10 @@ Call graph for <span class="t-accent">PaymentService.processPayment</span> (src/
     </section>
 
     <!-- ======= SLIDE 8: INSTALL ======= -->
-    <section class="slide content-slide grid-bg" data-slide="7">
+    <section class="slide content-slide grid-bg" id="install" data-slide="7">
       <span class="slide-number">07</span>
       <div class="slide-content">
-        <h2 class="reveal">Works <span class="accent">everywhere</span>.</h2>
+        <h2 class="reveal">Set up <span class="accent">agent4s</span></h2>
         <div class="compare reveal">
           <div class="terminal">
             <pre><span class="t-dim">MCP Server (Cursor, Windsurf, Cline)</span>
@@ -356,25 +346,23 @@ Call graph for <span class="t-accent">PaymentService.processPayment</span> (src/
   "<span class="t-accent">mcpServers</span>": {
     "<span class="t-green">agent4s</span>": {
       "type": "stdio",
-      "command": "/path/to/agent4s",
+      "command": "/absolute/path/to/agent4s/agent4s",
       "args": ["mcp"]
     }
   }
 }</pre>
           </div>
           <div class="terminal">
-            <pre><span class="t-dim">Claude Code</span>
+            <pre><span class="t-dim">In Claude Code</span>
 
-<span class="t-accent">$</span> /plugin install agent4s
-<span class="t-accent">$</span> /agent4s:setup
+/plugin marketplace add scala-digest/agent4s
+/plugin install agent4s@agent4s-marketplace
 
-<span class="t-green">agent4s setup complete:</span>
-  Build tool: <span class="t-accent">sbt</span> (Scala 3.3.3)
-  Project:    <span class="t-accent">228</span> files, <span class="t-accent">1791</span> symbols
-  CLAUDE.md:  <span class="t-green">created</span>
+<span class="t-dim">In the agent4s checkout, ask</span>
+<span class="t-green">Where is WorkspaceIndex defined?</span>
 
-<span class="t-dim">Skills: setup, semanticdb, upgrade, doctor
-Agent:  scala-expert (auto-invoked)</span></pre>
+<span class="t-dim">Source location</span>
+src/index.scala:198</pre>
           </div>
         </div>
       </div>
@@ -385,11 +373,10 @@ Agent:  scala-expert (auto-invoked)</span></pre>
       <div class="slide-content">
         <h1 class="reveal">agent<span class="accent">4s</span></h1>
         <p class="title-tagline reveal">
-          Your AI agent's Scala brain.<br>
-          <strong>35 commands. 349ms. Zero build setup.</strong>
+          Try the first lookup on this repository, or download the native CLI for your platform.
         </p>
         <div class="cta-row reveal">
-          <a href="https://github.com/scala-digest/agent4s" class="cta cta-primary">GitHub →</a>
+          <a href="https://github.com/scala-digest/agent4s" class="cta cta-primary">Quick start on GitHub</a>
           <a href="https://github.com/scala-digest/agent4s/releases" class="cta cta-secondary">Releases</a>
         </div>
       </div>
