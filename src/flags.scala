@@ -92,6 +92,17 @@ val MaxOutputFlag = Flag.int("--max-output")(
 val InPackageFlag = Flag.string("--in-package")("PKG", "Filter results to files whose package matches PKG prefix")
 val TimingsFlag = Flag.boolean("--timings")("Print per-phase timing breakdown to stderr")
 
+val SemanticFlag = Flag.boolean("--semantic")("Use compiler metadata for rename and outgoing calls when available")
+val FrameworkFlag = Flag.string("--framework")("NAME", "Test skeleton framework: munit, scalatest, or zio-test")
+val ApplyFlag = Flag.boolean("--apply")("Apply the proposed rename edits")
+val SeverityFlag = Flag.string("--severity")("LEVEL", "Filter static findings by severity")
+val BugCategoryFlag = Flag.string("--bug-category")("CATEGORY", "Filter static findings by category")
+val HotspotsFlag = Flag.boolean("--hotspots")("Include file risk scores in the report")
+val NoTaintFlag = Flag.boolean("--no-taint")("Skip data-flow analysis")
+val ReachableFlag = Flag.boolean("--reachable")("Filter findings to code reachable from entry points")
+val ReachableDepthFlag =
+  Flag.int("--reachable-depth")("N", default = DefaultReachabilityDepth, "Maximum depth when tracing entry points")
+
 val scalexFlags: FlagRegistry = FlagRegistry(
   List(
     WorkspaceFlag,
@@ -115,6 +126,15 @@ val scalexFlags: FlagRegistry = FlagRegistry(
     PrefixFlag,
     JsonFlag,
     VersionFlag,
+    SemanticFlag,
+    FrameworkFlag,
+    ApplyFlag,
+    SeverityFlag,
+    BugCategoryFlag,
+    HotspotsFlag,
+    NoTaintFlag,
+    ReachableFlag,
+    ReachableDepthFlag,
     InFlag,
     EachMethodFlag,
     OfFlag,
@@ -221,6 +241,16 @@ def flagsToContext(
       summaryMode = f(SummaryFlag),
       explainMode = f(ExplainFlag),
       concise = f(ConciseFlag)
+    ),
+    refactoring = RefactoringOptions(f(SemanticFlag), f(FrameworkFlag).getOrElse("munit"), f(ApplyFlag)),
+    bugHunt = BugHuntOptions(
+      f(SeverityFlag),
+      f(BugCategoryFlag),
+      f(HotspotsFlag),
+      f(NoTaintFlag),
+      f(ReachableFlag),
+      f(ReachableDepthFlag),
+      f(IncludeTestsFlag)
     ),
     ast = AstOptions(
       hasMethodFilter = f(HasMethodFlag),

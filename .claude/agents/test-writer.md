@@ -21,7 +21,7 @@ Test file(s) in `tests/` using MUnit framework.
    - WHEN → test setup / action
    - THEN (SHALL) → assertion that behavior IS present
    - AND (SHALL NOT) → assertion that behavior is NOT present
-5. Tests MUST compile: `scala-cli compile src/ tests/`
+5. Tests MUST compile: `./mill test.compile`
 6. Tests MUST FAIL before implementation (RED phase)
 7. Verify test names are descriptive and match scenario names
 

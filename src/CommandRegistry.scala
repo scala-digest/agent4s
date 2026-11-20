@@ -11,10 +11,46 @@ case class CommandSpec(
     workspaceOnly: Boolean = false,
     defaultNoTests: Boolean = false,
     needsIndex: Boolean = true,
-    reuseNameIndex: Boolean = true
+    reuseNameIndex: Boolean = true,
+    positionalWorkspace: Boolean = true
 )
 
 val commandSpecs: List[CommandSpec] = List(
+  CommandSpec("mcp", "", "Start the MCP server over standard input and output", None, needsIndex = false),
+  CommandSpec(
+    "scaffold",
+    "<impl|test> <type>",
+    "Generate implementation stubs or a test skeleton",
+    Some(cmdScaffold),
+    positionalWorkspace = false
+  ),
+  CommandSpec(
+    "rename",
+    "<old> <new>",
+    "Preview symbol edits; use --apply to write them",
+    Some(cmdRename),
+    needsBlooms = true,
+    positionalWorkspace = false
+  ),
+  CommandSpec("call-graph", "<method>", "List callers and callees of a method", Some(cmdCallGraph), needsBlooms = true),
+  CommandSpec("unused", "[package]", "List candidate unused symbols", Some(cmdUnused), needsBlooms = true),
+  CommandSpec(
+    "bug-hunt",
+    "",
+    "Review static findings and optional data-flow evidence",
+    Some(cmdBugHunt),
+    needsBlooms = true,
+    workspaceOnly = true,
+    defaultNoTests = true
+  ),
+  CommandSpec("memory", "<subcommand>", "Manage project suppression records", Some(cmdMemory), needsIndex = false),
+  CommandSpec(
+    "pattern",
+    "validate <rule>",
+    "Validate static rules against their examples",
+    Some(cmdPattern),
+    needsIndex = false
+  ),
   CommandSpec("search", "<query>", "Search symbols by name", Some(cmdSearch)),
   CommandSpec("def", "<symbol>", "Where is this symbol defined?", Some(cmdDef), reuseNameIndex = false),
   CommandSpec("impl", "<trait>", "Who extends this trait/class?", Some(cmdImpl)),

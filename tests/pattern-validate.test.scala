@@ -1,9 +1,13 @@
-import munit.FunSuite
-import java.nio.file.{Files, Path}
+package scalex
+
+import scalex.commands.*
+import scalex.index.*
+
+import java.nio.file.Files
 
 // ── PatternValidate tests ─────────────────────────────────────────────────
 
-class PatternValidateSuite extends ScalexTestBase:
+class PatternValidateSuite extends Agent4sTestBase {
 
   // ── JSON parsing ──────────────────────────────────────────────────────────
 
@@ -44,7 +48,9 @@ class PatternValidateSuite extends ScalexTestBase:
 
   test("pattern validate: valid spec passes") {
     val specFile = workspace.resolve("test-spec.pattern-spec.json")
-    Files.writeString(specFile, """{
+    Files.writeString(
+      specFile,
+      """{
       "patternName": "WeakHash",
       "severity": "Medium",
       "category": "Security",
@@ -54,26 +60,34 @@ class PatternValidateSuite extends ScalexTestBase:
       "testPositive": "import java.security.MessageDigest\ndef bad = MessageDigest.getInstance(\"MD5\")",
       "testNegative": "import java.security.MessageDigest\ndef ok = MessageDigest.getInstance(\"SHA-256\")",
       "testSuppressed": null
-    }""")
-    try
-      val idx = WorkspaceIndex(workspace, needBlooms = false)
-      val ctx = CommandContext(idx = idx, workspace = workspace, limit = 0, noTaint = true)
+    }"""
+    )
+    try {
+      val idx = WorkspaceIndex.load(workspace, needBlooms = false)
+      val ctx = CommandContext(
+        idx = idx,
+        workspace = workspace,
+        output = OutputOptions(limit = 0),
+        bugHunt = BugHuntOptions(noTaint = true)
+      )
       val result = cmdPattern(List("validate", specFile.toString), ctx)
-      result match
+      result match {
         case CmdResult.PatternValidation(results) =>
           assertEquals(results.size, 1)
           val v = results.head
           assert(v.positivePass, s"Positive should pass: ${v.errors}")
           assert(v.negativePass, s"Negative should pass: ${v.errors}")
         case other => fail(s"Expected PatternValidation, got $other")
-    finally
-      Files.deleteIfExists(specFile)
+      }
+    } finally Files.deleteIfExists(specFile)
   }
 
   test("pattern validate: positive failure detected") {
     val specFile = workspace.resolve("test-spec-bad.pattern-spec.json")
     // WHY: testPositive uses SHA-256 which should NOT trigger WeakHash
-    Files.writeString(specFile, """{
+    Files.writeString(
+      specFile,
+      """{
       "patternName": "WeakHash",
       "severity": "Medium",
       "category": "Security",
@@ -83,26 +97,34 @@ class PatternValidateSuite extends ScalexTestBase:
       "testPositive": "import java.security.MessageDigest\ndef bad = MessageDigest.getInstance(\"SHA-256\")",
       "testNegative": "import java.security.MessageDigest\ndef ok = MessageDigest.getInstance(\"SHA-256\")",
       "testSuppressed": null
-    }""")
-    try
-      val idx = WorkspaceIndex(workspace, needBlooms = false)
-      val ctx = CommandContext(idx = idx, workspace = workspace, limit = 0, noTaint = true)
+    }"""
+    )
+    try {
+      val idx = WorkspaceIndex.load(workspace, needBlooms = false)
+      val ctx = CommandContext(
+        idx = idx,
+        workspace = workspace,
+        output = OutputOptions(limit = 0),
+        bugHunt = BugHuntOptions(noTaint = true)
+      )
       val result = cmdPattern(List("validate", specFile.toString), ctx)
-      result match
+      result match {
         case CmdResult.PatternValidation(results) =>
           assertEquals(results.size, 1)
           val v = results.head
           assert(!v.positivePass, "Positive should fail — SHA-256 is not weak")
           assert(v.errors.exists(_.contains("did not trigger")))
         case other => fail(s"Expected PatternValidation, got $other")
-    finally
-      Files.deleteIfExists(specFile)
+      }
+    } finally Files.deleteIfExists(specFile)
   }
 
   test("pattern validate: negative failure detected") {
     val specFile = workspace.resolve("test-spec-fp.pattern-spec.json")
     // WHY: testNegative uses MD5 which SHOULD trigger WeakHash — spec is wrong
-    Files.writeString(specFile, """{
+    Files.writeString(
+      specFile,
+      """{
       "patternName": "WeakHash",
       "severity": "Medium",
       "category": "Security",
@@ -112,12 +134,18 @@ class PatternValidateSuite extends ScalexTestBase:
       "testPositive": "import java.security.MessageDigest\ndef bad = MessageDigest.getInstance(\"MD5\")",
       "testNegative": "import java.security.MessageDigest\ndef bad2 = MessageDigest.getInstance(\"MD5\")",
       "testSuppressed": null
-    }""")
-    try
-      val idx = WorkspaceIndex(workspace, needBlooms = false)
-      val ctx = CommandContext(idx = idx, workspace = workspace, limit = 0, noTaint = true)
+    }"""
+    )
+    try {
+      val idx = WorkspaceIndex.load(workspace, needBlooms = false)
+      val ctx = CommandContext(
+        idx = idx,
+        workspace = workspace,
+        output = OutputOptions(limit = 0),
+        bugHunt = BugHuntOptions(noTaint = true)
+      )
       val result = cmdPattern(List("validate", specFile.toString), ctx)
-      result match
+      result match {
         case CmdResult.PatternValidation(results) =>
           assertEquals(results.size, 1)
           val v = results.head
@@ -125,24 +153,32 @@ class PatternValidateSuite extends ScalexTestBase:
           assert(!v.negativePass, "Negative should fail — MD5 triggers the pattern")
           assert(v.errors.exists(_.contains("false positive")))
         case other => fail(s"Expected PatternValidation, got $other")
-    finally
-      Files.deleteIfExists(specFile)
+      }
+    } finally Files.deleteIfExists(specFile)
   }
 
   test("pattern validate: file not found") {
-    val idx = WorkspaceIndex(workspace, needBlooms = false)
-    val ctx = CommandContext(idx = idx, workspace = workspace, limit = 0, noTaint = true)
+    val idx = WorkspaceIndex.load(workspace, needBlooms = false)
+    val ctx = CommandContext(
+      idx = idx,
+      workspace = workspace,
+      output = OutputOptions(limit = 0),
+      bugHunt = BugHuntOptions(noTaint = true)
+    )
     val result = cmdPattern(List("validate", "nonexistent.json"), ctx)
-    result match
+    result match {
       case CmdResult.PatternValidation(results) =>
         assertEquals(results.size, 1)
         assert(results.head.errors.exists(_.contains("not found")))
       case other => fail(s"Expected PatternValidation, got $other")
+    }
   }
 
   test("pattern validate: unknown pattern name") {
     val specFile = workspace.resolve("test-spec-unknown.pattern-spec.json")
-    Files.writeString(specFile, """{
+    Files.writeString(
+      specFile,
+      """{
       "patternName": "NonexistentPattern",
       "severity": "High",
       "category": "Security",
@@ -152,23 +188,31 @@ class PatternValidateSuite extends ScalexTestBase:
       "testPositive": "def x = 1",
       "testNegative": "def y = 2",
       "testSuppressed": null
-    }""")
-    try
-      val idx = WorkspaceIndex(workspace, needBlooms = false)
-      val ctx = CommandContext(idx = idx, workspace = workspace, limit = 0, noTaint = true)
+    }"""
+    )
+    try {
+      val idx = WorkspaceIndex.load(workspace, needBlooms = false)
+      val ctx = CommandContext(
+        idx = idx,
+        workspace = workspace,
+        output = OutputOptions(limit = 0),
+        bugHunt = BugHuntOptions(noTaint = true)
+      )
       val result = cmdPattern(List("validate", specFile.toString), ctx)
-      result match
+      result match {
         case CmdResult.PatternValidation(results) =>
           assertEquals(results.size, 1)
           assert(results.head.errors.exists(_.contains("Unknown pattern")))
         case other => fail(s"Expected PatternValidation, got $other")
-    finally
-      Files.deleteIfExists(specFile)
+      }
+    } finally Files.deleteIfExists(specFile)
   }
 
   test("pattern validate: invalid severity") {
     val specFile = workspace.resolve("test-spec-sev.pattern-spec.json")
-    Files.writeString(specFile, """{
+    Files.writeString(
+      specFile,
+      """{
       "patternName": "WeakHash",
       "severity": "SuperCritical",
       "category": "Security",
@@ -178,23 +222,34 @@ class PatternValidateSuite extends ScalexTestBase:
       "testPositive": "import java.security.MessageDigest\ndef bad = MessageDigest.getInstance(\"MD5\")",
       "testNegative": "import java.security.MessageDigest\ndef ok = MessageDigest.getInstance(\"SHA-256\")",
       "testSuppressed": null
-    }""")
-    try
-      val idx = WorkspaceIndex(workspace, needBlooms = false)
-      val ctx = CommandContext(idx = idx, workspace = workspace, limit = 0, noTaint = true)
+    }"""
+    )
+    try {
+      val idx = WorkspaceIndex.load(workspace, needBlooms = false)
+      val ctx = CommandContext(
+        idx = idx,
+        workspace = workspace,
+        output = OutputOptions(limit = 0),
+        bugHunt = BugHuntOptions(noTaint = true)
+      )
       val result = cmdPattern(List("validate", specFile.toString), ctx)
-      result match
+      result match {
         case CmdResult.PatternValidation(results) =>
           assertEquals(results.size, 1)
           assert(results.head.errors.exists(_.contains("Invalid severity")))
         case other => fail(s"Expected PatternValidation, got $other")
-    finally
-      Files.deleteIfExists(specFile)
+      }
+    } finally Files.deleteIfExists(specFile)
   }
 
   test("pattern: no subcommand shows usage") {
-    val idx = WorkspaceIndex(workspace, needBlooms = false)
-    val ctx = CommandContext(idx = idx, workspace = workspace, limit = 0, noTaint = true)
+    val idx = WorkspaceIndex.load(workspace, needBlooms = false)
+    val ctx = CommandContext(
+      idx = idx,
+      workspace = workspace,
+      output = OutputOptions(limit = 0),
+      bugHunt = BugHuntOptions(noTaint = true)
+    )
     val result = cmdPattern(Nil, ctx)
     assert(result.isInstanceOf[CmdResult.UsageError])
   }
@@ -202,7 +257,9 @@ class PatternValidateSuite extends ScalexTestBase:
   test("pattern validate: multiple specs") {
     val spec1 = workspace.resolve("spec1.pattern-spec.json")
     val spec2 = workspace.resolve("spec2.pattern-spec.json")
-    Files.writeString(spec1, """{
+    Files.writeString(
+      spec1,
+      """{
       "patternName": "WeakHash",
       "severity": "Medium",
       "category": "Security",
@@ -212,8 +269,11 @@ class PatternValidateSuite extends ScalexTestBase:
       "testPositive": "import java.security.MessageDigest\ndef bad = MessageDigest.getInstance(\"MD5\")",
       "testNegative": "import java.security.MessageDigest\ndef ok = MessageDigest.getInstance(\"SHA-256\")",
       "testSuppressed": null
-    }""")
-    Files.writeString(spec2, """{
+    }"""
+    )
+    Files.writeString(
+      spec2,
+      """{
       "patternName": "NullLiteral",
       "severity": "Medium",
       "category": "TypeSafety",
@@ -223,12 +283,18 @@ class PatternValidateSuite extends ScalexTestBase:
       "testPositive": "val x: String = null",
       "testNegative": "val x: Option[String] = None",
       "testSuppressed": null
-    }""")
-    try
-      val idx = WorkspaceIndex(workspace, needBlooms = false)
-      val ctx = CommandContext(idx = idx, workspace = workspace, limit = 0, noTaint = true)
+    }"""
+    )
+    try {
+      val idx = WorkspaceIndex.load(workspace, needBlooms = false)
+      val ctx = CommandContext(
+        idx = idx,
+        workspace = workspace,
+        output = OutputOptions(limit = 0),
+        bugHunt = BugHuntOptions(noTaint = true)
+      )
       val result = cmdPattern(List("validate", spec1.toString, spec2.toString), ctx)
-      result match
+      result match {
         case CmdResult.PatternValidation(results) =>
           assertEquals(results.size, 2)
           assert(results(0).positivePass, s"WeakHash positive: ${results(0).errors}")
@@ -236,7 +302,10 @@ class PatternValidateSuite extends ScalexTestBase:
           assert(results(1).positivePass, s"NullLiteral positive: ${results(1).errors}")
           assert(results(1).negativePass, s"NullLiteral negative: ${results(1).errors}")
         case other => fail(s"Expected PatternValidation, got $other")
-    finally
+      }
+    } finally {
       Files.deleteIfExists(spec1)
       Files.deleteIfExists(spec2)
+    }
   }
+}

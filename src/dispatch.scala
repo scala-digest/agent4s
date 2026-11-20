@@ -22,10 +22,11 @@ def runCommand(cmd: String, args: List[String], ctx: CommandContext): Int = {
 
 private[scalex] def commandStatus(result: CmdResult): Int = {
   result match {
-    case _: CmdResult.UsageError             => 2
-    case _: CmdResult.Failure                => 1
-    case CmdResult.WithDiagnostics(inner, _) => commandStatus(inner)
-    case _                                   => 0
+    case _: CmdResult.UsageError                                          => 2
+    case r: CmdResult.RenameResult if r.application.exists(_.skipped > 0) => 1
+    case _: CmdResult.Failure                                             => 1
+    case CmdResult.WithDiagnostics(inner, _)                              => commandStatus(inner)
+    case _                                                                => 0
   }
 }
 

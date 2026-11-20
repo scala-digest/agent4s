@@ -8,6 +8,9 @@ on:
 permissions:
   contents: read
 
+env:
+  COURSIER_REPOSITORIES: https://repo.maven.apache.org/maven2
+
 concurrency:
   group: check-${{ github.ref }}
   cancel-in-progress: true

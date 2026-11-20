@@ -40,16 +40,16 @@ All diagrams generated with `scalex graph --render`. Reproduce any diagram by ru
  └─────────┘ └───────────┘ └──────────┘ └─────────────┘
 ```
 
-- **CLI Entry** (`src/cli.scala`) — `@main` entry point, parses `--workspace`, `--limit`, `--json`, and 30+ flags into `ParsedFlags`
-- **Flag Parsing** (`src/cli.scala`) — converts flags to `CommandContext`, resolves workspace path
-- **Dispatch** (`src/dispatch.scala`) — routes command name to handler function via `commands: Map[String, (List[String], CommandContext) => CmdResult]`
-- **Commands** (`src/commands/*.scala`) — 29 command handlers, each returning `CmdResult`
-- **WorkspaceIndex** (`src/index.scala`) — lazy in-memory index with symbol lookups, bloom filters, parent/child indexes
-- **CmdResult** (`src/model.scala`) — sealed enum with 25+ variants (`SymbolList`, `RefList`, `GraphOutput`, etc.)
-- **Formatter** (`src/format.scala`) — pattern-matches on `CmdResult` to produce text or JSON output
-- **Extraction** (`src/extraction.scala`) — Scalameta AST parsing, symbol/member/body extraction
-- **Git Discovery** (`src/index.scala`) — `git ls-files --stage` for tracked file paths + OIDs
-- **Persistence** (`src/index.scala`) — binary cache at `.scalex/index.bin` with string interning
+- **CLI Entry** (`src/cli.scala`) — `@main` entry point, parses `--workspace`, `--limit`, `--json`, and other registered flags
+- **Flag Parsing** (`src/flags.scala`) — converts flags to `CommandContext`, resolves workspace path
+- **Dispatch** (`src/dispatch.scala`) — routes command name to handler function through the metadata in `src/CommandRegistry.scala`
+- **Commands** (`src/commands/*.scala`) — command handlers, each returning `CmdResult`
+- **WorkspaceIndex** (`src/index/workspace.scala`) — lazy in-memory index with symbol lookups, bloom filters, parent/child indexes
+- **CmdResult** (`src/command-result.scala`) — sealed enum with 25+ variants (`SymbolList`, `RefList`, `GraphOutput`, etc.)
+- **Formatter** (`src/output/render.scala`) — pattern-matches on `CmdResult` to produce text or JSON output
+- **Extraction** (`src/extraction/`) — Scalameta AST parsing, symbol/member/body extraction
+- **Git Discovery** (`src/index/git.scala`) — `git ls-files --stage` for tracked file paths + OIDs
+- **Persistence** (`src/index/persistence.scala`) — binary cache at `.scalex/index.bin` with string interning
 
 ## Query Flow
 

@@ -81,7 +81,7 @@ final class WorkspaceIndex private (
     val workspace: Path,
     val needBlooms: Boolean,
     val gitFiles: List[GitFile],
-    private val indexedFiles: List[IndexedFile],
+    private[scalex] val indexedFiles: List[IndexedFile],
     val indexTimeMs: Long,
     val parsedCount: Int,
     val skippedCount: Int,
@@ -91,6 +91,8 @@ final class WorkspaceIndex private (
   val fileCount: Int = gitFiles.size
   val parseFailedFiles: List[String] = indexedFiles.collect { case f if f.parseFailed => f.relativePath }
   val parseFailures: Int = parseFailedFiles.size
+
+  lazy val semanticIndex: Option[SemanticIndex] = Timings.phase("load-semanticdb") { SemanticIndex.load(workspace) }
 
   private lazy val allSymbols: List[SymbolInfo] =
     Timings.phase("build-allSymbols") {
@@ -472,7 +474,7 @@ final class WorkspaceIndex private (
     found
   }
 
-  private def containsWord(line: String, word: String): Boolean =
+  private[scalex] def containsWord(line: String, word: String): Boolean =
     containsWordWith(line, word, _.isLetterOrDigit)
 
   private def containsWordStrict(line: String, word: String): Boolean =

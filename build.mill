@@ -16,6 +16,7 @@ trait BaseScalaModule extends ScalaModule {
 trait ScalexModule extends BaseScalaModule {
   def mvnDeps: T[Seq[Dep]] = Seq(
     mvn"org.scalameta::scalameta:4.17.4",
+    mvn"org.scalameta:semanticdb-shared_2.13:4.17.4",
     mvn"com.google.guava:guava:33.7.1-jre",
     mvn"com.github.javaparser:javaparser-core:3.28.2"
   )
@@ -62,7 +63,9 @@ object `package` extends ScalexModule, NativeImageModule {
     val output = os.Path(dest, workspaceRoot)
     os.makeDir.all(output / os.up)
     os.copy.over(nativeImage().path, output)
-    os.perms.set(output, "rwxr-xr-x")
+    if (output.toNIO.getFileSystem.supportedFileAttributeViews().contains("posix")) {
+      os.perms.set(output, "rwxr-xr-x")
+    }
     PathRef(output)
   }
 

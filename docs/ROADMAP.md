@@ -1,5 +1,9 @@
 # agent4s — Roadmap
 
+## Engine updates
+
+- Ported the fork to Scalex 1.41.0 for the 0.6.0 release.
+
 ## Strategic Vision
 
 **Goal:** Every AI agent working with Scala uses agent4s. The standard way to give AI coding tools Scala superpowers.

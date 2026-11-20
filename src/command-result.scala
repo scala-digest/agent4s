@@ -1,5 +1,7 @@
 package scalex
 
+import scalex.commands.PatternValidationResult
+
 import java.nio.file.Path
 
 // ── CmdResult types ────────────────────────────────────────────────────────
@@ -157,6 +159,39 @@ enum CmdResult {
   case WithDiagnostics(result: CmdResult, messages: List[String])
   case SymbolSummary(file: String, symbolsByKind: List[(kind: SymbolKind, count: Int)], total: Int)
   case Failure(message: String)
+  case RenameResult(
+      oldName: String,
+      newName: String,
+      definition: SymbolInfo,
+      edits: List[RenameEdit],
+      application: Option[RenameApplication] = None
+  )
+  case CallGraph(
+      method: String,
+      file: Path,
+      line: Int,
+      owner: String,
+      callees: List[CalleeInfo],
+      callers: List[Reference]
+  )
+  case ScaffoldImpl(
+      targetName: String,
+      targetFile: Path,
+      targetLine: Int,
+      targetPackage: String,
+      unimplemented: List[(parentName: String, parentFile: Path, parentLine: Int, members: List[MemberInfo])]
+  )
+  case ScaffoldTest(
+      targetName: String,
+      targetFile: Path,
+      targetLine: Int,
+      targetPackage: String,
+      publicMembers: List[MemberInfo],
+      framework: String
+  )
+  case BugHuntReport(findings: List[BugFinding], hotspots: List[HotspotInfo], filesScanned: Int, timedOut: Boolean)
+  case MemoryResult(memories: List[SuppressionMemory], message: String = "")
+  case PatternValidation(results: List[PatternValidationResult])
   case NotFound(message: String, hint: NotFoundHint)
   case UsageError(message: String)
 }

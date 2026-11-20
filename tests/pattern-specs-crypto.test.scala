@@ -1,26 +1,35 @@
-import munit.FunSuite
-import java.nio.file.{Files, Path}
-import scala.jdk.CollectionConverters.*
+package scalex
+
+import scalex.commands.*
+import scalex.index.*
+
+import java.nio.file.Files
 
 // ── Meta-fuzzing: PatternSpec tests — Crypto, XML, Logging, Regex patterns ────
 
-class PatternSpecCryptoSuite extends ScalexTestBase:
+class PatternSpecCryptoSuite extends Agent4sTestBase {
 
-  private def scanForPattern(code: String, pattern: BugPattern): List[BugFinding] =
+  private def scanForPattern(code: String, pattern: BugPattern): List[BugFinding] = {
     val fileName = s"pspec-cry-${pattern.toString.toLowerCase}.scala"
     val testFile = workspace.resolve(fileName)
     Files.writeString(testFile, s"object PSpecCryHelper {\n$code\n}")
     run("git", "add", fileName)
-    try
-      val idx = WorkspaceIndex(workspace, needBlooms = false)
-      idx.index()
-      val ctx = CommandContext(idx = idx, workspace = workspace, limit = 0, noTaint = true,
-        pathFilter = Some(fileName))
-      cmdBugHunt(Nil, ctx) match
+    try {
+      val idx = WorkspaceIndex.load(workspace, needBlooms = false)
+
+      val ctx = CommandContext(
+        idx = idx,
+        workspace = workspace,
+        output = OutputOptions(limit = 0),
+        bugHunt = BugHuntOptions(noTaint = true),
+        filters = FiltersOptions(pathFilter = Some(fileName))
+      )
+      cmdBugHunt(Nil, ctx) match {
         case r: CmdResult.BugHuntReport => r.findings.filter(_.pattern == pattern)
-        case _ => Nil
-    finally
-      run("git", "rm", "-f", fileName)
+        case _                          => Nil
+      }
+    } finally run("git", "rm", "-f", fileName)
+  }
 
   // ── WeakHash ──────────────────────────────────────────────────────────────────
 
@@ -233,3 +242,4 @@ class PatternSpecCryptoSuite extends ScalexTestBase:
     )
     assertEquals(findings.size, 0, "Literal LDAP string must not trigger LDAPInjection")
   }
+}

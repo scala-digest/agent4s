@@ -45,7 +45,7 @@ Use the checked-in Mill launcher. Separate multiple top-level tasks with `+`.
 ./scripts/check-skill-frontmatter.sh
 
 # Optional Claude Code plugin validation
-claude plugin validate plugins/scalex/
+claude plugin validate plugins/agent4s/
 ```
 
 ## Architecture
@@ -134,10 +134,10 @@ Every check still runs on cache hits. Mill revalidates task inputs before reusin
 
 ```
 plugins/
-└── scalex/                        # scalex plugin
+└── agent4s/                       # agent4s plugin
     ├── .claude-plugin/plugin.json # Claude Code manifest
     ├── .codex-plugin/plugin.json  # Codex CLI/desktop manifest
-    └── skills/scalex/
+    └── skills/agent4s/
         ├── SKILL.md
         ├── references/
         └── scripts/scalex-cli     # Bootstrap: downloads + caches binary, forwards args
@@ -156,23 +156,22 @@ The bootstrap script `scalex-cli` contains `EXPECTED_VERSION` that must be bumpe
 4. Tag as `vX.Y.Z` and push — GitHub Actions builds native binaries + creates release
 
 ### Step 3: Plugin version bump
-5. Bump `EXPECTED_VERSION` in `plugins/scalex/skills/scalex/scripts/scalex-cli`
+5. Bump `EXPECTED_VERSION` in `plugins/agent4s/skills/agent4s/scripts/scalex-cli`
 6. Update `CHECKSUM_scalex_*` values in `scalex-cli` — get hashes from individual `.sha256` release assets (iterate: `gh release view vX.Y.Z --json assets --jq '.assets[] | select(.name | endswith(".sha256")) | .name'` then download each with `gh release download vX.Y.Z -p <name> -O -`)
-7. Bump `version` in `.claude-plugin/marketplace.json` and `plugins/scalex/.codex-plugin/plugin.json` alongside the bootstrap version
+7. Bump `version` in `.claude-plugin/marketplace.json` and both plugin manifests under `plugins/agent4s/` alongside the bootstrap version
 8. Commit, create PR, merge to main (main is protected — cannot push directly)
 
-Marketplace catalogs: Claude Code uses `.claude-plugin/marketplace.json`; Codex uses `.agents/plugins/marketplace.json`. Both point to `plugins/scalex/` and share its skill and bootstrap. Codex's version is in its plugin manifest, not its marketplace catalog.
+Marketplace catalogs: Claude Code uses `.claude-plugin/marketplace.json`; Codex uses `.agents/plugins/marketplace.json`. Both point to `plugins/agent4s/` and share its skill and bootstrap. Codex's version is in its plugin manifest, not its marketplace catalog.
 
 ## Feature checklist
 
 When adding or changing commands/flags:
 - Flags: declare once in `src/flags.scala` (spellings, value shape, default, help text) and add to the `scalexFlags` registry — the parser and the help `Options:` section derive from it automatically. Wire the value into `CommandContext` via `flagsToContext` in the same file. Registry order = help display order.
 - Commands: add the handler under `src/commands/` and register it once in `src/CommandRegistry.scala`. Help, dispatch, workspace defaults, and bloom/index requirements derive from that metadata.
-- Keep detailed command signatures, examples, and options in `plugins/scalex/skills/scalex/references/commands.md`. Update `plugins/scalex/skills/scalex/SKILL.md` when query selection, interpretation, or invocation guidance changes; do not duplicate the command manual there. Description must be double-quoted YAML and under 1024 chars (for GitHub Copilot CLI compatibility). **Always run `./scripts/check-skill-frontmatter.sh` after editing SKILL.md** to validate
+- Keep detailed command signatures, examples, and options in `plugins/agent4s/skills/agent4s/references/commands.md`. Update `plugins/agent4s/skills/agent4s/SKILL.md` when query selection, interpretation, or invocation guidance changes; do not duplicate the command manual there. Description must be double-quoted YAML and under 1024 chars (for GitHub Copilot CLI compatibility). **Always run `./scripts/check-skill-frontmatter.sh` after editing SKILL.md** to validate
 - Update `docs/ROADMAP.md`
 - Update `CHANGELOG.md`
 - Update `README.md` (commands block, Coding-Agent-Friendly Features, "Use it" examples). README does NOT duplicate the options table — it links to the command reference
-- Update `site/index.html` (command grid, command count heading)
 
 ## Gotchas
 

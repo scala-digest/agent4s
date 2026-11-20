@@ -76,6 +76,18 @@ case class AstOptions(
     bodyContainsFilter: Option[String] = None
 )
 
+case class RefactoringOptions(semantic: Boolean = false, framework: String = "munit", applyEdits: Boolean = false)
+
+case class BugHuntOptions(
+    bugSeverity: Option[String] = None,
+    bugCategory: Option[String] = None,
+    hotspots: Boolean = false,
+    noTaint: Boolean = false,
+    reachable: Boolean = false,
+    reachableDepth: Int = DefaultReachabilityDepth,
+    reachableIncludeTests: Boolean = false
+)
+
 case class CommandContext(
     idx: WorkspaceIndex,
     workspace: Path,
@@ -86,5 +98,7 @@ case class CommandContext(
     members: MembersOptions = MembersOptions(),
     hierarchy: HierarchyOptions = HierarchyOptions(),
     overview: OverviewOptions = OverviewOptions(),
-    ast: AstOptions = AstOptions()
+    ast: AstOptions = AstOptions(),
+    refactoring: RefactoringOptions = RefactoringOptions(),
+    bugHunt: BugHuntOptions = BugHuntOptions()
 )

@@ -1,14 +1,14 @@
 {
-  "name": "scalex-marketplace",
+  "name": "agent4s-marketplace",
   "interface": {
-    "displayName": "Scalex"
+    "displayName": "agent4s"
   },
   "plugins": [
     {
-      "name": "scalex",
+      "name": "agent4s",
       "source": {
         "source": "local",
-        "path": "./plugins/scalex"
+        "path": "./plugins/agent4s"
       },
       "policy": {
         "installation": "AVAILABLE",

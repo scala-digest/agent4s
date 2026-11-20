@@ -40,6 +40,7 @@ def runCli(args: List[String]): Int = {
           println("\nAll commands accept an optional workspace or -w PATH (default: current directory).")
           println("Scala and Java sources are indexed without compilation; unchanged files reuse the cache.")
           0
+        case "mcp" :: _      => McpServer.run(); 0
         case "batch" :: rest => runBatch(f, rest)
         case name :: rest    =>
           commandsByName.get(name) match {
@@ -53,8 +54,9 @@ def runCli(args: List[String]): Int = {
               } else { WorkspaceIndex.empty(workspace) }
               val noTests = (spec.defaultNoTests && !f(IncludeTestsFlag)) || f(NoTestsFlag)
               val ctx = flagsToContext(f, idx, workspace, effectiveNoTests = Some(noTests))
-              val actualArgs = if (name == "graph") { graphArgs(args.dropWhile(_ != "graph").drop(1)) }
-              else { commandArgs }
+              val actualArgs = if (Set("graph", "memory", "pattern").contains(name)) {
+                commandLocalArgs(args.dropWhile(_ != name).drop(1))
+              } else { commandArgs }
               runCommand(name, actualArgs, ctx)
           }
       }
@@ -73,8 +75,9 @@ private[scalex] def resolveCommandArgs(
   f(WorkspaceFlag) match {
     case Some(ws)                   => (workspace = resolveWorkspace(ws), args = rest)
     case None if spec.workspaceOnly => (workspace = resolveWorkspace(rest.headOption.getOrElse(".")), args = rest)
-    case None if !spec.needsIndex   => (workspace = resolveWorkspace("."), args = rest)
-    case None                       =>
+    case None if !spec.positionalWorkspace => (workspace = resolveWorkspace("."), args = rest)
+    case None if !spec.needsIndex          => (workspace = resolveWorkspace("."), args = rest)
+    case None                              =>
       rest match {
         case ws :: arg :: tail => (workspace = resolveWorkspace(ws), args = arg :: tail)
         case _                 => (workspace = resolveWorkspace("."), args = rest)
@@ -99,7 +102,7 @@ private[scalex] def runBatch(f: Flags, rest: List[String]): Int = {
       .updated(InPackageFlag, lineFlags(InPackageFlag).orElse(f(InPackageFlag)))
     val ctx = flagsToContext(merged, idx, workspace, batchMode = true)
     Timings.reset()
-    val args = if (parts.head == "graph") { graphArgs(parts.tail) }
+    val args = if (Set("graph", "memory", "pattern").contains(parts.head)) { commandLocalArgs(parts.tail) }
     else { lineFlags.positional }
     status = math.max(status, runCommand(parts.head, args, ctx))
     Timings.report()
@@ -107,8 +110,8 @@ private[scalex] def runBatch(f: Flags, rest: List[String]): Int = {
   status
 }
 
-/** Strip registry flags while retaining graph-local flags and their operands. */
-private[scalex] def graphArgs(args: List[String]): List[String] = {
+/** Strip registry flags while retaining command-local flags and their operands. */
+private[scalex] def commandLocalArgs(args: List[String]): List[String] = {
   val remaining = ListBuffer.empty[String]
   val argv = args.toVector
   var i = 0

@@ -1,6 +1,9 @@
-import munit.FunSuite
-import java.nio.file.{Files, Path}
-import scala.jdk.CollectionConverters.*
+package scalex
+
+import scalex.commands.*
+import scalex.index.*
+
+import java.nio.file.Files
 
 // ── Meta-fuzzing: PatternSpec tests for all 45 BugPattern values ──────────────
 // Split across 3 files by category:
@@ -8,25 +11,31 @@ import scala.jdk.CollectionConverters.*
 //   pattern-specs-security.test.scala  — Security patterns
 //   pattern-specs-effects.test.scala   — Effect + Concurrency patterns
 
-class PatternSpecSuite extends ScalexTestBase:
+class PatternSpecSuite extends Agent4sTestBase {
 
   // Helper: write `code` to a tracked temp file, index it, run bug-hunt with noTaint,
   // return findings for the given pattern. Cleans up after itself.
-  private def scanForPattern(code: String, pattern: BugPattern): List[BugFinding] =
+  private def scanForPattern(code: String, pattern: BugPattern): List[BugFinding] = {
     val fileName = s"pattern-test-${pattern.toString.toLowerCase}.scala"
     val testFile = workspace.resolve(fileName)
     Files.writeString(testFile, s"object PatternTestHelper {\n$code\n}")
     run("git", "add", fileName)
-    try
-      val idx = WorkspaceIndex(workspace, needBlooms = false)
-      idx.index()
-      val ctx = CommandContext(idx = idx, workspace = workspace, limit = 0, noTaint = true,
-        pathFilter = Some(fileName))
-      cmdBugHunt(Nil, ctx) match
+    try {
+      val idx = WorkspaceIndex.load(workspace, needBlooms = false)
+
+      val ctx = CommandContext(
+        idx = idx,
+        workspace = workspace,
+        output = OutputOptions(limit = 0),
+        bugHunt = BugHuntOptions(noTaint = true),
+        filters = FiltersOptions(pathFilter = Some(fileName))
+      )
+      cmdBugHunt(Nil, ctx) match {
         case r: CmdResult.BugHuntReport => r.findings.filter(_.pattern == pattern)
-        case _ => Nil
-    finally
-      run("git", "rm", "-f", fileName)
+        case _                          => Nil
+      }
+    } finally run("git", "rm", "-f", fileName)
+  }
 
   // ── OptionGet ────────────────────────────────────────────────────────────────
 
@@ -225,3 +234,4 @@ class PatternSpecSuite extends ScalexTestBase:
     )
     assertEquals(findings.size, 0, "FileInputStream inside try must not trigger StreamNotClosed")
   }
+}

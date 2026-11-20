@@ -1,71 +1,15 @@
 # Contributing to agent4s
 
-## Development Setup
+Clone the repository and run the checked-in Mill launcher. It downloads the pinned Scala compiler and GraalVM. Windows users can run the same tasks with `mill.bat`.
 
-```bash
-# Prerequisites: JDK 21+, scala-cli
+```sh
 git clone https://github.com/scala-digest/agent4s.git
 cd agent4s
-
-# Run from source
-scala-cli --power run src/ -- def WorkspaceIndex --verbose
-
-# Run tests
-scala-cli --power test src/ tests/
-
-# Run a single test
-scala-cli --power test src/ tests/ -- '*rename*'
-
-# Build native image (requires GraalVM)
-./build-native.sh
+./mill run def WorkspaceIndex --verbose
+./mill test + bench.compile
+./mill mill.scalalib.scalafmt/checkFormatAll '__.sources'
 ```
 
-## Project Structure
+Use `./mill test.testOnly scalex.Agent4sCliSuite` to run the fork's CLI tests. To check a native build, run `./build-native.sh` and then `bash scripts/check-native.sh ./scalex`.
 
-```
-src/                          # Production code
-├── project.scala             # Dependencies (scala-cli directives)
-├── model.scala               # Data types, enums
-├── extraction.scala          # AST parsing (Scalameta + JavaParser)
-├── index.scala               # WorkspaceIndex, bloom filters, persistence
-├── semanticdb.scala          # SemanticDB integration (type-aware refs)
-├── analysis.scala            # Cross-index analysis
-├── cli.scala                 # CLI entry point, flag parsing
-├── dispatch.scala            # Command registry
-├── format.scala              # Output rendering (text + JSON)
-├── command-helpers.scala     # Shared utilities
-└── commands/                 # One file per command (36 total)
-
-tests/                        # Test suite (528 tests)
-├── test-base.test.scala      # Shared fixture
-├── cli.test.scala            # Command + rendering tests
-├── extraction.test.scala     # AST extraction tests
-├── index.test.scala          # Index + search tests
-└── analysis.test.scala       # Analysis tests
-```
-
-## Adding a New Command
-
-1. Create `src/commands/mycommand.scala` with `def cmdMyCommand(args: List[String], ctx: CommandContext): CmdResult`
-2. Add `CmdResult` variant in `model.scala`
-3. Register in `dispatch.scala`: `"mycommand" -> cmdMyCommand`
-4. Add renderer in `format.scala` (text + JSON)
-5. Add help text in `cli.scala`
-6. If command needs 2+ positional args (not workspace), add dispatch case in `cli.scala` before the default case
-7. Write tests in `tests/cli.test.scala`
-
-## Code Style
-
-- **Named tuples only** — never `(String, Int)`, always `(name: String, count: Int)`
-- **No `return` statements** — use `scala.util.boundary` + `break` for early exit
-- **No backwards compatibility** — consistency > not breaking hypothetical consumers
-- **Zero warnings policy** — compile the sources and check the compiler output for warnings.
-- **Zero deprecations** — enable deprecation diagnostics when checking the build.
-
-## Before Submitting
-
-```bash
-scala-cli --power compile src/
-scala-cli --power compile --scalac-option "-deprecation" src/
-scala-cli --power test src/ tests/
-```
+The contributor guide covers the command registry, index snapshots, renderers, plugin manifests and release process. [Development guide](docs/DEVELOPMENT.md)

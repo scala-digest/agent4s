@@ -29,9 +29,9 @@ Approved spec from `docs/specs/[task-name].md`.
 7. Refactor if needed — respect size limits from CLAUDE.md
 8. Mutation check: break key logic line, verify test fails, revert
 9. Run verification:
-   - `scala-cli compile src/` — zero warnings
-   - `scala-cli compile --scalac-option "-deprecation" src/` — zero deprecations
-   - `scala-cli test src/ tests/` — all green
+   - `./mill compile` — zero warnings
+   - `./mill compile` — zero deprecations
+   - `./mill test` — all green
 10. If fail — fix immediately (up to 3 iterations)
 11. Update `CHANGELOG.md` if user-visible change
 

@@ -1,0 +1,36 @@
+{
+  "name": "agent4s",
+  "version": "0.5.2",
+  "description": "Find definitions, implementations and usages in Git-tracked Scala and Java source. Trace calls, review static findings and preview renames before building the project.",
+  "author": {
+    "name": "scala-digest"
+  },
+  "homepage": "https://github.com/scala-digest/agent4s",
+  "repository": "https://github.com/scala-digest/agent4s",
+  "license": "MIT",
+  "keywords": [
+    "scala",
+    "code-intelligence",
+    "ai-agent",
+    "bug-hunt",
+    "static-analysis",
+    "taint-analysis",
+    "dead-code",
+    "call-graph",
+    "mcp"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "agent4s",
+    "shortDescription": "Explore Scala and Java code without a build server",
+    "longDescription": "Find definitions, implementations and usages in Git-tracked Scala and Java source. Trace calls, review static findings and preview renames before building the project.",
+    "developerName": "scala-digest",
+    "category": "Developer Tools",
+    "capabilities": [],
+    "websiteURL": "https://github.com/scala-digest/agent4s",
+    "defaultPrompt": [
+      "Use agent4s to find the entry points in this Scala project."
+    ],
+    "logo": "./.claude-plugin/icon.png"
+  }
+}

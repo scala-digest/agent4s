@@ -18,5 +18,5 @@ Begin implementing a task in an isolated worktree.
    b. Implement minimal code (GREEN)
    c. Mutation check: break key logic, verify test fails, revert
 9. Run verification after each significant change:
-   - `scala-cli compile src/` — zero warnings
-   - `scala-cli test src/ tests/` — all green
+   - `./mill compile` — zero warnings
+   - `./mill test` — all green
