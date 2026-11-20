@@ -16,6 +16,8 @@ def cmdGraph(args: List[String], ctx: CommandContext): CmdResult = {
       if (edgeListStr.isEmpty) {
         CmdResult.UsageError("Usage: scalex graph --render \"V1->V2, V2->V3\"")
       } else { renderGraphCmd(edgeListStr, parsed.flags) }
+    case "--parse" :: _ if !ctx.stdinAvailable =>
+      CmdResult.UsageError("Graph parsing requires standard input from a standalone CLI invocation.")
     case "--parse" :: _ =>
       val input = Source.stdin.getLines().mkString("\n")
       if (input.trim.isEmpty) { CmdResult.UsageError("No input provided on stdin for --parse") }

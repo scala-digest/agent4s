@@ -4,6 +4,7 @@ import java.nio.file.{Files, Path}
 import scala.collection.mutable
 import scala.jdk.CollectionConverters.*
 import scala.meta.internal.{semanticdb => sdb}
+import sdb.Scala.*
 
 // ── SemanticDB integration (optional, type-aware refs) ──────────────────────
 
@@ -18,7 +19,7 @@ enum SemanticRole {
 class SemanticIndex(
     val refsByName: Map[String, List[SemanticRef]],
     val refsBySymbol: Map[String, List[SemanticRef]],
-    val occurrencesByFile: Map[String, List[SemanticRef]],
+    val occurrencesByFile: Map[Path, List[SemanticRef]],
     val symbolInfoMap: Map[String, sdb.SymbolInformation],
     val fileCount: Int
 ) {
@@ -56,23 +57,23 @@ class SemanticIndex(
       }
 
   /** Find all occurrences within a file's line range. For call-graph: what symbols are referenced in a method body. */
-  def findOccurrencesInRange(fileUri: String, startLine: Int, endLine: Int): List[SemanticRef] =
-    occurrencesByFile.getOrElse(fileUri, Nil).filter { ref =>
+  def findOccurrencesInRange(file: Path, startLine: Int, endLine: Int): List[SemanticRef] =
+    occurrencesByFile.getOrElse(file.normalize(), Nil).filter { ref =>
       ref.role == SemanticRole.Reference && ref.line >= startLine && ref.line <= endLine
     }
 
   /** Match a scalex SymbolInfo to the best SemanticDB symbol. */
-  def matchSymbol(name: String, packageName: String, kind: SymbolKind): Option[String] = {
-    val candidates = resolveSymbols(name)
-    if candidates.isEmpty then None
-    else if candidates.size == 1 then Some(candidates.head.symbol)
-    else {
-      // Disambiguate by package
-      val pkgPrefix = packageName.replace('.', '/')
-      candidates
-        .find(c => c.symbol.startsWith(pkgPrefix + "/"))
-        .map(_.symbol)
-        .orElse(candidates.headOption.map(_.symbol))
+  def matchSymbol(target: SymbolInfo): Option[String] = {
+    val definitions = findRefs(target.name).filter(_.role == SemanticRole.Definition)
+    val atDeclaration =
+      definitions.filter(ref => ref.file == target.file && ref.line == target.line).map(_.symbol).distinct
+    atDeclaration match {
+      case symbol :: Nil => Some(symbol)
+      case _             =>
+        resolveSymbols(target.name).filter(_.pkg == target.packageName) match {
+          case candidate :: Nil => Some(candidate.symbol)
+          case _                => None
+        }
     }
   }
 
@@ -96,7 +97,7 @@ object SemanticIndex {
     else {
       val refsByName = mutable.HashMap.empty[String, mutable.ListBuffer[SemanticRef]]
       val refsBySymbol = mutable.HashMap.empty[String, mutable.ListBuffer[SemanticRef]]
-      val occurrencesByFile = mutable.HashMap.empty[String, mutable.ListBuffer[SemanticRef]]
+      val occurrencesByFile = mutable.HashMap.empty[Path, mutable.ListBuffer[SemanticRef]]
       val symbolInfoMap = mutable.HashMap.empty[String, sdb.SymbolInformation]
       var fileCount = 0
 
@@ -116,7 +117,7 @@ object SemanticIndex {
             // Index occurrences (references + definitions)
             doc.occurrences.foreach { occ =>
               if occ.symbol.nonEmpty && !occ.symbol.startsWith("local") then {
-                val name = extractSimpleName(occ.symbol)
+                val name = symbolInfoMap.get(occ.symbol).map(_.displayName).getOrElse(extractSimpleName(occ.symbol))
                 if name.nonEmpty then {
                   val role = occ.role match {
                     case sdb.SymbolOccurrence.Role.DEFINITION => SemanticRole.Definition
@@ -128,7 +129,7 @@ object SemanticIndex {
 
                   refsByName.getOrElseUpdate(name.toLowerCase, mutable.ListBuffer.empty) += ref
                   refsBySymbol.getOrElseUpdate(occ.symbol, mutable.ListBuffer.empty) += ref
-                  occurrencesByFile.getOrElseUpdate(doc.uri, mutable.ListBuffer.empty) += ref
+                  occurrencesByFile.getOrElseUpdate(sourcePath.normalize(), mutable.ListBuffer.empty) += ref
                 }
               }
             }
@@ -156,18 +157,8 @@ object SemanticIndex {
     * "com/example/UserService#" → "UserService"
     */
   def extractSimpleName(symbol: String): String =
-    if symbol.isEmpty || symbol.startsWith("local") then ""
-    else {
-      // Strip trailing descriptor: # (type), . (term), (). (method)
-      val stripped = symbol
-        .stripSuffix(".")
-        .replaceAll("""\([^)]*\)$""", "") // remove method disambiguator
-        .stripSuffix("#")
-      // Take the last segment after /
-      val lastSlash = stripped.lastIndexOf('/')
-      if lastSlash >= 0 then stripped.substring(lastSlash + 1)
-      else stripped
-    }
+    if (symbol.isGlobal) { symbol.desc.value }
+    else { "" }
 
   /** Resolve a SemanticDB URI to an absolute path. SemanticDB URIs are relative to the compiler's sourceroot. Try
     * workspace first, then common subdirectories.

@@ -190,6 +190,7 @@ enum CmdResult {
       framework: String
   )
   case BugHuntReport(findings: List[BugFinding], hotspots: List[HotspotInfo], filesScanned: Int, timedOut: Boolean)
+  case MemoryExport(records: List[String])
   case MemoryResult(memories: List[SuppressionMemory], message: String = "")
   case PatternValidation(results: List[PatternValidationResult])
   case NotFound(message: String, hint: NotFoundHint)

@@ -384,6 +384,24 @@ class McpSuite extends FunSuite {
     deleteRecursive(ws)
   }
 
+  test("MCP preserves its input stream when a tool normally reads stdin") {
+    val workspace = java.nio.file.Files.createTempDirectory("mcp-stdin")
+    try {
+      val params = ujson.Obj(
+        "name" -> "scalex_memory",
+        "arguments" -> ujson.Obj(
+          "workspace" -> workspace.toString,
+          "query" -> "import",
+          "args" -> ujson.Arr("--json")
+        )
+      )
+      val call = ujson.Obj("jsonrpc" -> "2.0", "id" -> 1, "method" -> "tools/call", "params" -> params)
+      val result = ujson.read(McpServer.testHandleMessage(McpJson.parse(ujson.write(call))).get)("result")
+      assertEquals(result("isError").bool, true)
+      assert(ujson.read(result("content")(0)("text").str)("error").str.contains("--file"))
+    } finally deleteRecursive(workspace)
+  }
+
   private def deleteRecursive(path: java.nio.file.Path): Unit = {
     if java.nio.file.Files.isDirectory(path) then {
       val stream = java.nio.file.Files.list(path)

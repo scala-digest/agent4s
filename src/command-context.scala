@@ -100,5 +100,6 @@ case class CommandContext(
     overview: OverviewOptions = OverviewOptions(),
     ast: AstOptions = AstOptions(),
     refactoring: RefactoringOptions = RefactoringOptions(),
-    bugHunt: BugHuntOptions = BugHuntOptions()
+    bugHunt: BugHuntOptions = BugHuntOptions(),
+    stdinAvailable: Boolean = true
 )

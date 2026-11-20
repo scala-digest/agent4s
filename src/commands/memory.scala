@@ -249,16 +249,15 @@ def cmdMemory(args: List[String], ctx: CommandContext): CmdResult = {
       }
 
     case "export" :: _ =>
-      val mems = store.load()
-      mems.foreach(m => println(serializeMemory(m)))
-      CmdResult.MemoryResult(Nil, message = "")
+      CmdResult.MemoryExport(store.load().map(serializeMemory))
 
+    case "import" :: rest if !ctx.stdinAvailable && extractFlag(rest, "--file").isEmpty =>
+      CmdResult.UsageError("Use memory import --file <path> when standard input carries requests.")
     case "import" :: rest =>
       val fileArg = extractFlag(rest, "--file")
       val lines = fileArg match {
         case Some(path) =>
-          try Files.readAllLines(java.nio.file.Paths.get(path)).asScala.toList
-          catch case _: java.io.IOException => Nil
+          Files.readAllLines(ctx.workspace.resolve(path)).asScala.toList
         case None =>
           val reader = new java.io.BufferedReader(new java.io.InputStreamReader(System.in))
           Iterator.continually(reader.readLine()).takeWhile(_ != null).toList

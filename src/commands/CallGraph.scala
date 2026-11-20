@@ -73,9 +73,7 @@ private def semanticCallees(body: BodyInfo, sym: SymbolInfo, ctx: CommandContext
       System.err.println("No SemanticDB data — falling back to text-based call-graph.")
       None
     case Some(semIdx) =>
-      // Find the file URI relative to workspace
-      val relPath = ctx.workspace.relativize(sym.file).toString
-      val occurrences = semIdx.findOccurrencesInRange(relPath, body.startLine, body.endLine)
+      val occurrences = semIdx.findOccurrencesInRange(sym.file, body.startLine, body.endLine)
 
       if occurrences.isEmpty then {
         System.err.println(s"No semantic occurrences in body range — falling back to text-based.")

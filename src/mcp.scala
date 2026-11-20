@@ -359,10 +359,10 @@ object McpServer {
         val idx = if (spec.needsIndex) { WorkspaceIndex.load(wsPath, spec.needsBlooms) }
         else { WorkspaceIndex.empty(wsPath) }
         val noTests = (spec.defaultNoTests && !flags(IncludeTestsFlag)) || flags(NoTestsFlag)
-        val ctx = flagsToContext(flags, idx, wsPath, effectiveNoTests = Some(noTests))
+        val ctx = flagsToContext(flags, idx, wsPath, effectiveNoTests = Some(noTests)).copy(stdinAvailable = false)
         val args = cmd match {
           case "graph" =>
-            query.toList.flatMap(q => List("--render", q)) ++ commandLocalArgs(extraArgs).filterNot(_ == "--parse")
+            query.toList.flatMap(q => List("--render", q)) ++ commandLocalArgs(extraArgs)
           case "memory" | "pattern" => commandLocalArgs(allArgs)
           case _                    => flags.positional
         }

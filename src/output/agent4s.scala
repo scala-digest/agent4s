@@ -285,11 +285,8 @@ private[output] def renderBugHuntReport(r: CmdResult.BugHuntReport, ctx: Command
 }
 
 private[output] def renderMemoryResult(r: CmdResult.MemoryResult, ctx: CommandContext): Unit = {
-  if r.message.nonEmpty then println(r.message)
-  // export subcommand prints raw JSONL directly — nothing to render here
-  if r.memories.isEmpty then {
-    if r.message.isEmpty then println("No suppression memories.")
-  } else if ctx.output.jsonOutput then {
+  if (r.message.nonEmpty && !ctx.output.jsonOutput) { println(r.message) }
+  if (ctx.output.jsonOutput) {
     val arr = r.memories.zipWithIndex
       .map { (m, i) =>
         val scopeJson = m.scope match {
@@ -310,6 +307,8 @@ private[output] def renderMemoryResult(r: CmdResult.MemoryResult, ctx: CommandCo
       }
       .mkString("[", ",", "]")
     println(arr)
+  } else if (r.memories.isEmpty) {
+    if (r.message.isEmpty) { println("No suppression memories.") }
   } else {
     val header = s"Suppression memories (${r.memories.size}):"
     println(header)

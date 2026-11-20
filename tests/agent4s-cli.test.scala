@@ -569,4 +569,42 @@ class Agent4sCliSuite extends Agent4sTestBase {
       before.replace("RenameSource", "RenamedTarget")
     )
   }
+
+  test("SemanticDB member rename only edits compiler-resolved occurrences") {
+    import scala.meta.internal.{semanticdb => sdb}
+    val file = "SemanticMember.scala"
+    val lines = List(
+      "object SemanticMember {",
+      "  def compute(): Int = 1",
+      """  def next(): String = compute().toString + "compute" """.stripTrailing(),
+      "}"
+    )
+    writeFile(file, lines.mkString("\n"))
+    run("git", "add", file)
+    val symbol = "SemanticMember.compute()."
+    assertEquals(SemanticIndex.extractSimpleName(symbol), "compute")
+    assertEquals(SemanticIndex.extractSimpleName("example/Owner#compute(+1)."), "compute")
+    val uses = List((1, sdb.SymbolOccurrence.Role.DEFINITION), (2, sdb.SymbolOccurrence.Role.REFERENCE)).map {
+      (row, role) =>
+        val column = lines(row).indexOf("compute")
+        sdb.SymbolOccurrence(Some(sdb.Range(row, column, row, column + "compute".length)), symbol, role)
+    }
+    val doc = sdb.TextDocument(
+      uri = file,
+      symbols =
+        Seq(sdb.SymbolInformation(symbol = symbol, kind = sdb.SymbolInformation.Kind.METHOD, displayName = "compute")),
+      occurrences = uses
+    )
+    val meta = workspace.resolve("target/classes/META-INF/semanticdb/SemanticMember.scala.semanticdb")
+    java.nio.file.Files.createDirectories(meta.getParent)
+    java.nio.file.Files.write(meta, sdb.TextDocuments(Seq(doc)).toByteArray)
+    val ctx =
+      CommandContext(WorkspaceIndex.load(workspace), workspace, refactoring = RefactoringOptions(semantic = true))
+    cmdRename(List("compute", "calculate"), ctx) match {
+      case r: CmdResult.RenameResult =>
+        assertEquals(r.edits.size, 2)
+        assertEquals(r.edits.last.newLine, """def next(): String = calculate().toString + "compute" """.stripTrailing())
+      case other => fail(s"Expected semantic rename edits, got $other")
+    }
+  }
 }

@@ -186,6 +186,7 @@ def flagsToContext(
   val sawDown = f(DownFlag)
   CommandContext(
     idx = idx,
+    stdinAvailable = !batchMode,
     workspace = workspace,
     filters = FiltersOptions(
       kindFilter = f(KindFlag),

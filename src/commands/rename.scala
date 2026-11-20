@@ -57,7 +57,7 @@ private def semanticRename(oldName: String, newName: String, ctx: CommandContext
       case Some(semIdx) =>
         val targetDef = defs.head
         // Map scalex definition to SemanticDB symbol
-        semIdx.matchSymbol(targetDef.name, targetDef.packageName, targetDef.kind) match {
+        semIdx.matchSymbol(targetDef) match {
           case None =>
             System.err.println(s"Could not resolve '$oldName' in SemanticDB — falling back to text-based rename.")
             textRename(oldName, newName, ctx)
@@ -80,47 +80,38 @@ private def semanticRename(oldName: String, newName: String, ctx: CommandContext
               }
               System.err.println(s"Using semantic rename (${semIdx.fileCount} compiled files) — type-aware, precise")
 
-              // Build edits from semantic refs
-              val edits = mutable.ListBuffer.empty[RenameEdit]
-              val seenKeys = mutable.HashSet.empty[String]
-              val defFiles = defs.map(_.file).toSet
-
-              semRefs.foreach { ref =>
-                val key = s"${ref.file}:${ref.line}"
-                if seenKeys.add(key) then {
-                  // Read the actual line from the file
-                  val lineText = try {
-                    val lines = Files.readAllLines(ref.file)
-                    if ref.line > 0 && ref.line <= lines.size() then lines.get(ref.line - 1)
-                    else null
-                  } catch {
-                    case _: Exception => null
-                  }
-
-                  if lineText != null then {
-                    val trimmed = lineText.trim
-                    val newLine = replaceWord(trimmed, oldName, newName)
-                    if newLine != trimmed then {
-                      val category = ref.role match {
-                        case SemanticRole.Definition =>
-                          if isDefinitionLine(trimmed, oldName) then "definition" else "usage"
-                        case SemanticRole.Reference =>
-                          if trimmed.startsWith("import ") then "import"
-                          else if trimmed.matches("""^\s*(//|/\*|\*).*""") then "comment"
-                          else "usage"
+              val edits = List.newBuilder[RenameEdit]
+              var stale = false
+              semRefs.groupBy(_.file).foreach { (file, refs) =>
+                val lines = Files.readAllLines(file)
+                refs.groupBy(_.line).foreach { (line, occurrences) =>
+                  val offsets = occurrences.map(_.character).distinct.sorted.reverse
+                  if (line < 1 || line > lines.size()) { stale = true }
+                  else {
+                    val source = lines.get(line - 1)
+                    if (!offsets.forall(offset => source.startsWith(oldName, offset))) { stale = true }
+                    else {
+                      val updated = offsets.foldLeft(source) { (text, offset) =>
+                        text.patch(offset, newName, oldName.length)
                       }
-                      edits += RenameEdit(ref.file, ref.line, trimmed, newLine, category)
+                      val category = if (occurrences.exists(_.role == SemanticRole.Definition)) { "definition" }
+                      else if (source.trim.startsWith("import ")) { "import" }
+                      else { "usage" }
+                      edits += RenameEdit(file, line, source.trim, updated.trim, category)
                     }
                   }
                 }
               }
-
-              CmdResult.RenameResult(
-                oldName,
-                newName,
-                targetDef,
-                edits.toList.sortBy(e => (ctx.workspace.relativize(e.file).toString, e.line))
-              )
+              if (stale) {
+                CmdResult.Failure("SemanticDB positions differ from the source. Recompile before renaming.")
+              } else {
+                CmdResult.RenameResult(
+                  oldName,
+                  newName,
+                  targetDef,
+                  edits.result().sortBy(e => (e.file.toString, e.line))
+                )
+              }
             }
         }
     }
