@@ -55,9 +55,9 @@ artifact_base=${ARTIFACT%.exe}
 checksum_var="CHECKSUM_${artifact_base//-/_}"
 expected_hash="${!checksum_var}"
 if command -v sha256sum >/dev/null 2>&1; then
-  actual_hash=$(sha256sum "$TMP" | awk '{print $1}')
+  actual_hash=$(sha256sum -b < "$TMP" | awk '{print $1}')
 else
-  actual_hash=$(shasum -a 256 "$TMP" | awk '{print $1}')
+  actual_hash=$(shasum -a 256 -b < "$TMP" | awk '{print $1}')
 fi
 if [[ "$actual_hash" != "$expected_hash" ]]; then
   echo "agent4s: checksum verification failed for $ARTIFACT" >&2
