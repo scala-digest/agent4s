@@ -1,404 +1,104 @@
-<p align="center">
-  <img src="docs/vulture.png" alt="agent4s" width="200">
-  <br>
-  <strong>agent4s</strong>
-  <br><br>
-  <em>Scala superpowers for AI coding agents.</em>
-</p>
+# agent4s
 
-<p align="center">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License"></a>
-  <a href="#all-35-commands"><img src="https://img.shields.io/badge/commands-35-brightgreen.svg" alt="35 Commands"></a>
-</p>
+<img src="docs/vulture.png" align="right" width="96" alt="">
 
----
+Use agent4s to find a definition in Scala or Java, see who implements a trait, or preview the edits for a rename. It reads Git-tracked source files and returns file paths and line numbers. You can query a freshly cloned project before compiling it.
 
-Your AI agent treats Scala like plain text. `grep` finds 50 things named `Config`. agent4s finds the one you mean.
+## Start in Claude Code
 
-**35 commands** for code navigation, refactoring, dead code detection, and bug hunting. No build server. No compilation. From `git clone` to first answer in 349ms.
+The plugin launcher supports macOS (Apple Silicon or Intel) and Linux x86-64. On Windows x64, use the native CLI or MCP server below. Install the plugin from your terminal with Claude Code 2.1.292 or later.
 
-```bash
-# Claude Code
-claude plugins install agent4s
-
-# Homebrew (macOS/Linux)
-brew install scala-digest/tap/agent4s
+```sh
+claude plugin install agent4s --marketplace scala-digest/agent4s
 ```
 
----
+On earlier versions with plugin support, run `claude plugin marketplace add scala-digest/agent4s` and then `claude plugin install agent4s@agent4s-marketplace`.
 
-## Why
+Start a Claude Code session in a Scala repository and try this prompt.
 
-AI coding agents have three bad options for Scala:
-
-| Option | Problem |
-|---|---|
-| **grep** | Returns raw text. `class Config` matches `ConfigStore`, `ConfigParser`. Two packages with `Config`? Hits both. |
-| **Metals LSP** | Requires build server, full compilation, minutes of startup. Designed for humans in IDEs, not agents making 50 tool calls per task. |
-| **The AI model itself** | Reads source files well, but can't trace inheritance trees, find dead code, or scan 18K files for bug patterns in 3 seconds. |
-
-agent4s is the fourth option: **instant structured code intelligence from parsed ASTs**. Works without a build. Gets smarter when you compile (`--semantic`).
-
----
-
-## 5 things only agent4s can do
-
-**Find bugs without compiling.** 45 AST patterns with cross-file taint analysis. SQL injection, XSS, `.get` on Option, `null`, weak crypto, ZIO anti-patterns. No other tool does this for Scala without a build server.
-```bash
-agent4s bug-hunt --severity critical --no-tests
-agent4s bug-hunt --hotspots                        # rank by findings x git churn
+```text
+/agent4s:agent4s Where does this project start? Show the entry points with their files and line numbers.
 ```
 
-**Rename the right `Config`.** Two classes named `Config` in different packages? `--semantic` renames only the one you mean.
-```bash
-agent4s rename Config AppConfig --semantic
-```
+In agent4s's own repository, you should find the CLI's `main` in `src/cli.scala` and the benchmark's `bench` in `src/bench.scala`. To repeat the lookup below in chat, ask “Where is `WorkspaceIndex` defined?” Run `/agent4s:setup` if you want Claude to save project-specific notes in `CLAUDE.md`.
 
-**Find dead code in seconds.** Bloom filter pre-screening across every file. If no file's bloom filter contains the symbol name — it has zero external references.
-```bash
-agent4s unused com.legacy --kind class
-```
+## Try the CLI
 
-**Trace call chains.** What does `processPayment` call? Who calls it? Bidirectional call graph from parsed method bodies.
-```bash
-agent4s call-graph processPayment --in PaymentService
-```
+On macOS (Apple Silicon or Intel) and Linux x86-64, the launcher downloads and verifies the pinned native binary on first use. You need Git, Bash, curl and shasum.
 
-**Understand a codebase in one command.** Packages, hub types, dependency graph, architecture — all in 60 lines.
-```bash
-agent4s overview --concise
-```
-
----
-
-## Quick Start
-
-### Claude Code
-
-```bash
-claude plugins install agent4s
-```
-
-Then in your project:
-```
-/agent4s:setup
-```
-
-14 skills available: `/agent4s:bug-hunt`, `/agent4s:audit`, `/agent4s:critique`, `/agent4s:harden`, `/agent4s:simplify`, `/agent4s:normalize`, `/agent4s:extract`, `/agent4s:polish`, `/agent4s:setup`, `/agent4s:semanticdb`, `/agent4s:doctor`, `/agent4s:upgrade`, `/agent4s:submit`. Plus `scala-expert` agent for multi-step tasks.
-
-### MCP Server
-
-35 commands exposed as MCP tools. In-memory index caching between calls. Copy-paste the config for your editor:
-
-<details>
-<summary><strong>Cursor</strong> — <code>.cursor/mcp.json</code></summary>
-
-```json
-{
-  "mcpServers": {
-    "agent4s": {
-      "command": "agent4s",
-      "args": ["mcp"]
-    }
-  }
-}
-```
-</details>
-
-<details>
-<summary><strong>Windsurf</strong> — <code>~/.codeium/windsurf/mcp_config.json</code></summary>
-
-```json
-{
-  "mcpServers": {
-    "agent4s": {
-      "command": "agent4s",
-      "args": ["mcp"]
-    }
-  }
-}
-```
-</details>
-
-<details>
-<summary><strong>Cline</strong> — <code>~/.cline/mcp_settings.json</code></summary>
-
-```json
-{
-  "mcpServers": {
-    "agent4s": {
-      "command": "agent4s",
-      "args": ["mcp"],
-      "disabled": false
-    }
-  }
-}
-```
-</details>
-
-<details>
-<summary><strong>Generic MCP client</strong></summary>
-
-```json
-{
-  "mcpServers": {
-    "agent4s": {
-      "type": "stdio",
-      "command": "agent4s",
-      "args": ["mcp"]
-    }
-  }
-}
-```
-</details>
-
-If you installed via Homebrew, `agent4s` is already on your PATH. Otherwise replace `agent4s` with the full binary path.
-
-### GitHub Action (CI)
-
-```yaml
-- uses: scala-digest/agent4s-action@v1
-  with:
-    command: bug-hunt
-    args: '--severity high --no-tests'
-```
-
-See [action/README.md](action/README.md) for full options (unused code checks, fail gates, multi-command setups).
-
-### CLI
-
-```bash
+```sh
 git clone https://github.com/scala-digest/agent4s.git
-cd agent4s && ./build-native.sh
-
-# Or run without building
-scala-cli run src/ -- search /path/to/project MyClass
+cd agent4s
+./agent4s def WorkspaceIndex --verbose
 ```
 
----
+You should see the declaration from this repository.
 
-## bug-hunt
-
-Static analysis for Scala that doesn't need your build to compile. Self-improving: learns from every triage.
-
-```
-                            bug-hunt pipeline
-                            ─────────────────
-
-  ┌──────────────────────────────────────────────────────────────────┐
-  │                                                                  │
-  │   ┌─────────────┐   ┌─────────────┐   ┌────────────────────┐   │
-  │   │  AST Scan   │──▶│ Reachability │──▶│    LLM Triage      │   │
-  │   │             │   │   Filter     │   │                    │   │
-  │   │ 45 patterns │   │             │   │ Read context code  │   │
-  │   │ taint trace │   │ entrypoints │   │ Classify each:     │   │
-  │   │ credential  │   │ call-graph  │   │  ✓ Confirmed       │   │
-  │   │ detection   │   │ depth limit │   │  ? Likely           │   │
-  │   └─────────────┘   └─────────────┘   │  ✗ False positive  │   │
-  │         ▲                              └──────┬─────────────┘   │
-  │         │                                     │                 │
-  │         │   ┌──────────────────┐              │                 │
-  │         │   │   Suppression    │◀─── ✗ FP ───┘                 │
-  │         │   │    Memories      │         ┌────────────────┐     │
-  │         │   │                  │    ✓ ──▶│    Report      │     │
-  │         │   │ .scalex/        │    ? ──▶│               │     │
-  │         │   │ memories.json   │         │ + GitHub issue │     │
-  │         │   └────────┬─────────┘         │   cross-ref   │     │
-  │         │            │                   │ + repro script │     │
-  │         │            │ auto-suppress     └────────────────┘     │
-  │         └────────────┘ on next scan                             │
-  │                                                                  │
-  └──────── self-improving loop: fewer false positives each run ────┘
+```text
+Definition of "WorkspaceIndex":
+  class     WorkspaceIndex — src/index.scala:198
+             class WorkspaceIndex
 ```
 
-### How the loop works
+Use `-w` to point the launcher at a different checkout. Replace the path below with the root of your Scala project.
 
-1. **Scan** — 45 AST patterns + cross-file taint analysis + credential regex. Bloom filter pre-screens files. Parallel scan with 20s timeout.
-2. **Reachability** — `--reachable` filters to findings reachable from entrypoints (routes, `@main`, `extends App`). Dead code excluded.
-3. **LLM Triage** — `/agent4s:bug-hunt` skill reads surrounding code, classifies each finding. Known patterns: ZIO `Ref.get` vs `Option.get`, test-only secrets, safe casts after match.
-4. **Memory** — false positives auto-recorded: `memory add <pattern> --source llm-triage`. Stored in `.scalex/memories.json` (version-controllable, shareable).
-5. **Next scan** — memories loaded at scan start, matching findings suppressed. Fewer false positives with each run.
-
-**45 patterns** across 7 categories:
-
-| Category | Patterns |
-|---|---|
-| **Security** | SQL injection, XSS, SSRF, XXE, command injection, path traversal, weak crypto, hardcoded secrets, open redirect, regex DoS, LDAP injection, insecure deserialization, log injection |
-| **Type safety** | `.get` on Option, `.head`/`.last` on collection, `asInstanceOf`, `null`, `return` in lambda |
-| **Concurrency** | `Await.result(Duration.Inf)`, `Thread.sleep`, nested `synchronized`, `sender()` in Future, `var` + Future |
-| **Effects** | `throw` in `ZIO.succeed`, `ZIO.die`, `unsafeRun`, blocking in effect |
-| **Resources** | Unclosed `Source`, `Stream`, `Connection` |
-| **Crypto** | Weak hash (MD5/SHA1), weak cipher (DES/RC4), weak random, hardcoded IV, ECB mode |
-| **Credentials** | 16 regex patterns: AWS, GitHub, Anthropic, OpenAI, Slack, Stripe, private keys |
-
-**Taint analysis** (on by default): traces variable assignments backward from sinks to sources. HTTP parameter flows to SQL query? Flagged with the full flow chain. Literal-derived sinks? Suppressed. Cross-file tracing up to 3 hops.
-
-```bash
-agent4s bug-hunt -w /path/to/project              # all patterns
-agent4s bug-hunt --severity critical --no-tests    # critical only, production code
-agent4s bug-hunt --reachable                       # only findings reachable from entrypoints
-agent4s bug-hunt --hotspots                        # files ranked by findings x git churn
-agent4s bug-hunt --json                            # structured output for CI
-agent4s memory list                                # show suppression memories
-agent4s pattern validate spec.json                 # validate a CVE-to-pattern spec
+```sh
+./agent4s overview --concise -w /path/to/your/project
 ```
 
----
+On Windows x64, download `scalex-windows-x64.exe` and run it from PowerShell, for example `.\scalex-windows-x64.exe overview --concise`. Release assets use the engine's original name, `scalex`. The launcher pins v0.5.0, whose executable prints `0.1.0` for `--version`. [Native downloads](https://github.com/scala-digest/agent4s/releases)
 
-## Benchmarks
+To run the current source with Scala CLI and JDK 21, use `scala-cli --power run src/ -- def WorkspaceIndex` in this checkout.
 
-Native GraalVM binary, Apple Silicon M3 Max. Full methodology: [docs/BENCHMARK.md](docs/BENCHMARK.md).
+## Choose a query
 
-| Project | Files | Symbols | Cold Index | Warm Index |
-|---|---|---|---|---|
-| Scala 3 compiler | 18,703 | 148,179 | 2.7s | 349ms |
+The examples below are arguments after `./agent4s`. Substitute names from your project.
 
-### agent4s vs grep — real numbers on scala3 compiler
+| Your question | Query | What you get |
+| --- | --- | --- |
+| Where is this type defined? | `def com.example.UserService --verbose` | File, line and declared signature |
+| Who implements the trait? | `impl UserService` | Types whose declarations extend it |
+| How does this method work? | `body findUser --in UserServiceLive --imports` | The source of the method and its file's imports |
+| Where does the name appear? | `refs UserService --count` | Match counts by category. Drop `--count` for locations. |
+| What would a rename change? | `rename UserService AccountService` | A preview of edits. Add `--apply` to write them. |
+| Which tests mention this type? | `coverage UserService` | Matching lines in test files |
 
-| Task | agent4s | grep |
-|---|---|---|
-| Who imports `Compiler`? | **1,213 files** (resolves `import dotty.tools.*`) | 86 files (literal match only) |
-| Inheritance tree | 7 subclasses, 3 levels deep | Not possible |
-| Dead code in `dotty.tools.dotc` | **113 classes** with zero external refs | Not possible |
-| Bug patterns | **30 findings** in 16 files (MD5 hash, deadlocks, ReDoS) | Regex hacks, high false positives |
-| Project overview | Packages, hub types, dep graph in 60 lines | Not possible |
-| Rename `Config` (2 packages) | `--semantic` renames only the right one | Renames both |
+For more queries, run `./agent4s help`. The command reference covers filters, package exploration, call graphs, scaffolding and static checks. [Command reference](plugins/agent4s/skills/agent4s/references/commands.md)
 
-Use grep for: string literals, config values, non-Scala files.
+## Choose a Claude Code skill
 
----
+| Task | Skill |
+| --- | --- |
+| Navigate | `/agent4s:agent4s` looks up symbols and follows relationships. |
+| Review | `/agent4s:audit` reviews code health. `/agent4s:bug-hunt` inspects static findings. `/agent4s:critique` evaluates design. |
+| Refactor | `/agent4s:simplify` reduces complexity. `/agent4s:extract` pulls out shared code. `/agent4s:normalize` aligns code with project conventions. |
+| Prepare a change for review | `/agent4s:harden` improves error handling. `/agent4s:polish` tidies names, imports and docs. |
+| Configure a project | `/agent4s:setup` saves project notes. `/agent4s:semanticdb` configures compiler metadata. |
+| Maintain the plugin | `/agent4s:doctor` diagnoses problems. `/agent4s:upgrade` updates the installation. `/agent4s:submit` reports feedback. |
 
-## Commands
+## Connect an MCP client
 
-### Search & Navigate
+Clients that support the Model Context Protocol can run the same CLI as a local server. For example, add this entry to `.cursor/mcp.json`, replacing the command with the absolute path to the launcher in your clone or the downloaded executable.
 
-```bash
-agent4s search Service --kind trait         # fuzzy camelCase search
-agent4s def UserService --verbose           # find definition with signature
-agent4s explain UserService --related       # definition + doc + members + impls in one call
-agent4s hierarchy Compiler --depth 3        # inheritance tree from parsed extends clauses
-agent4s members Signal --inherited          # members including parents
+```json
+{
+  "mcpServers": {
+    "agent4s": {
+      "command": "/absolute/path/to/agent4s/agent4s",
+      "args": ["mcp"]
+    }
+  }
+}
 ```
 
-### Refactor
+Reload the client and look for `scalex_def` in its tools. Call it with `workspace` set to the absolute path of the agent4s checkout and `query` set to `WorkspaceIndex`. You should get the same source location as in the CLI example.
 
-```bash
-agent4s rename OldName NewName              # text-based, word-boundary safe
-agent4s rename OldName NewName --semantic   # type-aware via SemanticDB
-agent4s scaffold impl MyServiceLive         # generate override stubs with type param substitution
-agent4s scaffold test MyService             # test skeleton (munit/scalatest/zio-test)
-```
+## How to read the results
 
-### Analyze
+- agent4s parses Scala 2, Scala 3 and Java declarations. It caches the index in `.scalex/index.bin`. For untracked files, local variables and generated code, check the source or build output.
+- `refs` matches names in source text. Two types with the same name can appear in one result. `unused` reports candidates to review and `coverage` shows mentions in tests.
+- If your compiler emits SemanticDB, `rename --semantic` can use compiler-resolved symbols, and `call-graph --semantic` can use them for outgoing calls. Read the diagnostic on stderr to see when the engine falls back to text matching.
 
-```bash
-agent4s refs UserService --count            # how many files reference this symbol
-agent4s call-graph processPayment --in Svc  # what it calls + who calls it
-agent4s unused com.legacy                   # symbols with zero external refs
-agent4s coverage UserService                # references in test files only
-agent4s deps Phase --depth 2               # what this symbol depends on
-```
+Read about the index and its measured cold and warm performance, or use the repository's action in CI. [Architecture](docs/ARCHITECTURE.md) · [Benchmarks](docs/BENCHMARK.md) · [GitHub Action](action/README.md)
 
-### Explore
-
-```bash
-agent4s overview --concise                  # project summary: packages, key types, stats
-agent4s api com.example --used-by com.web   # coupling between packages
-agent4s diff HEAD~5                         # which symbols changed vs a git ref
-agent4s ast-pattern --extends Phase --has-method run  # structural search by shape
-agent4s grep "pattern" --in ClassName --each-method   # regex scoped to a type's methods
-```
-
-<details>
-<summary><strong>All 35 commands</strong></summary>
-
-```
-search          Fuzzy camelCase symbol search
-def             Find where a symbol is defined
-impl            Find classes/objects extending a trait
-refs            Find references (text matching + bloom filters)
-imports         Find import statements for a symbol
-members         List members of a class/trait/object
-doc             Extract scaladoc comment
-explain         Definition + doc + members + impls in one call
-body            Extract method/class source text
-hierarchy       Inheritance tree from extends clauses
-overrides       Find override implementations across types
-deps            Import + body dependencies of a symbol
-context         Enclosing scopes at a file:line
-diff            Symbol-level diff vs a git ref
-coverage        References in test files only
-tests           List test cases structurally
-ast-pattern     Search by structural shape (extends + has-method + body-contains)
-overview        Project summary (symbols by kind, top packages)
-api             Externally-imported symbols of a package
-summary         Sub-packages with symbol counts
-packages        List all packages
-package         All symbols in a package
-file            Find files by name (fuzzy)
-symbols         What's defined in a file
-annotated       Find symbols with a specific annotation
-entrypoints     Find @main, def main, extends App, test suites
-grep            Regex search scoped to Scala/Java files
-index           Force reindex
-batch           Multiple queries, one index load (stdin)
-rename          Word-boundary rename (text or semantic)
-unused          Symbols with zero external references
-call-graph      Callees (from body) + callers (from refs) of a method
-bug-hunt        45 AST patterns + taint analysis + hotspot ranking
-memory          Suppression memory management (list/add/remove/export/import)
-pattern         CVE-to-pattern validation pipeline
-scaffold impl   Generate override stubs for unimplemented members
-scaffold test   Generate test suite skeleton
-graph           ASCII/Unicode directed graph rendering
-mcp             Start MCP server (JSON-RPC over stdio)
-```
-
-</details>
-
-All commands support `--json`, `--path`, `--no-tests`, `--in-package`, `--limit`.
-
----
-
-## How It Works
-
-```
-1. git ls-files --stage       → tracked .scala/.java files + content hashes
-2. Compare OIDs vs cache      → skip unchanged files
-3. Scalameta parse (parallel) → AST → symbols, bloom filters, imports
-4. .scalex/index.bin          → binary cache with string interning
-5. Answer the query            → lazy indexes built on demand
-6. [Optional] SemanticDB       → .semanticdb files from compiler for type-aware mode
-```
-
-No build server. No daemon. Run, answer, exit. Works on any Scala project from `git clone`.
-
----
-
-## Limitations
-
-agent4s parses source text into ASTs — it does not compile. This makes it fast and dependency-free, but:
-
-- **No type inference.** We don't know what type `x` has unless it's annotated.
-- **No implicit resolution.** Can't find which given instance the compiler would select.
-- **No macro expansion.** Macro-generated code is invisible.
-- **refs is text-based.** `refs Config` finds all things named Config. Use `--semantic` for disambiguation.
-- **Taint analysis is heuristic.** Traces variable names, not types. The LLM triage in `/agent4s:bug-hunt` helps filter false positives.
-
-For full semantic precision: compile with `-Xsemanticdb` and use `--semantic` flag.
-
----
-
-## Credits
-
-Built on [scalex](https://github.com/nguyenyou/scalex) by Tu Nguyen. MIT licensed.
-
-- [Scalameta](https://scalameta.org/) — AST parsing and SemanticDB format
-- [Metals](https://scalameta.org/metals/) — inspiration for git OID caching, bloom filter search
-- [ascii-graphs](https://github.com/scalameta/ascii-graphs) — Sugiyama-style graph layout (ported to Scala 3.8)
-
----
-
-## License
-
-MIT
+Built on scalex by Tu Nguyen, with Scalameta, JavaParser and graph layout code adapted from ascii-graphs. [scalex](https://github.com/nguyenyou/scalex) · [Contributing](CONTRIBUTING.md) · [MIT license](LICENSE)

@@ -1,79 +1,18 @@
 ---
 name: upgrade
-description: "Upgrade the scalex binary to the latest release from GitHub. Checks current version, fetches latest release, clears cache, and re-downloads."
+description: "Update the installed agent4s Claude Code plugin from its marketplace and verify the engine selected by the updated launcher."
 disable-model-invocation: true
 ---
 
-You are upgrading the scalex binary to the latest version.
+# Update agent4s
 
-## Step 1: Locate scalex-cli
+Check the current plugin version with `claude plugin list`, then refresh the marketplace and update the named plugin. If the installation has a project or local scope, run the commands from that project and use the same scope for the update.
 
-The scalex-cli bootstrap script is at the path relative to this skill:
-`../agent4s/scripts/scalex-cli`
-
-Resolve the absolute path and verify it exists.
-
-## Step 2: Get current version
-
-```bash
-bash "<scalex-cli-path>" --version
+```sh
+claude plugin marketplace update agent4s-marketplace
+claude plugin update agent4s@agent4s-marketplace
 ```
 
-Note the current version.
+Report the update command's result and the installed plugin version from `claude plugin list`. If a command fails, report its error before claiming an update.
 
-## Step 3: Get latest release version
-
-Try `gh` first (most reliable), fall back to `curl`:
-
-```bash
-gh release view --repo scala-digest/agent4s --json tagName -q .tagName 2>/dev/null
-```
-
-If `gh` is not available:
-```bash
-curl -sL "https://api.github.com/repos/scala-digest/agent4s/releases/latest" | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"//;s/".*//'
-```
-
-The tag format is `vX.Y.Z`. Strip the `v` prefix to compare with the current version.
-
-## Step 4: Compare versions
-
-If current version matches latest → print "Already up to date (vX.Y.Z)" and stop.
-
-If versions differ → continue with upgrade.
-
-## Step 5: Clear cached binary
-
-```bash
-rm -rf ~/.cache/agent4s/*
-```
-
-This removes the cached native binary. The bootstrap script will re-download it on next invocation.
-
-## Step 6: Trigger re-download
-
-Run any scalex command to trigger the bootstrap script's download:
-
-```bash
-bash "<scalex-cli-path>" --version
-```
-
-The bootstrap script will detect the missing binary, download the new version, and cache it.
-
-## Step 7: Verify
-
-Check the new version:
-
-```bash
-bash "<scalex-cli-path>" --version
-```
-
-Print a summary:
-```
-scalex upgraded: vOLD → vNEW
-```
-
-If the version didn't change, check:
-- Is the `EXPECTED_VERSION` in `scalex-cli` script up to date?
-- Was the download successful? Check for error messages in the output.
-- The bootstrap script pins to `EXPECTED_VERSION` — if this hasn't been bumped in the plugin, the binary won't upgrade past that version. Tell the user to update the plugin itself: `claude plugins install agent4s`
+Reload plugins with `/reload-plugins` or start a fresh Claude Code session. Run `/agent4s:doctor` there to verify the active launcher. The launcher selects a release by its pinned version and verifies new downloads against their SHA-256 checksums. Each release has its own cache entry, so updates can reuse a previously verified download.

@@ -7,6 +7,9 @@ on:
 jobs:
   quality:
     runs-on: ubuntu-24.04
+    env:
+      COURSIER_REPOSITORIES: https://repo.maven.apache.org/maven2
+      HAS_GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE != '' }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
@@ -18,10 +21,7 @@ jobs:
           distribution: 'graalvm'
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: VirtusLab/scala-cli-setup@59e308800210b0414d2d7190068c80021e1b3e5d # v1
-        with:
-          power: true
-          jvm: graalvm-java21
+      - uses: ./.github/actions/setup-scala-cli
 
       # === COMPILE (zero warnings) ===
       - name: Compile
@@ -55,7 +55,38 @@ jobs:
           fi
 
       # === SECRETS SCAN ===
-      - name: Secrets scan
+      - name: Secrets scan with Gitleaks Action
+        if: env.HAS_GITLEAKS_LICENSE == 'true'
         uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+
+      - name: Secrets scan with Gitleaks CLI
+        id: gitleaks_cli
+        if: env.HAS_GITLEAKS_LICENSE != 'true'
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          GITLEAKS_SHA256: 9991e0b2903da4c8f6122b5c3186448b927a5da4deef1fe45271c3793f4ee29c
+        run: |
+          archive="$RUNNER_TEMP/gitleaks.tar.gz"
+          curl -fsSL --retry 3 -o "$archive" \
+            https://github.com/gitleaks/gitleaks/releases/download/v8.24.3/gitleaks_8.24.3_linux_x64.tar.gz
+          printf '%s  %s\n' "$GITLEAKS_SHA256" "$archive" | sha256sum -c -
+          tar -xzf "$archive" -C "$RUNNER_TEMP" gitleaks
+
+          commit_count=$(git rev-list --count "$BASE_SHA..$HEAD_SHA")
+          echo "Scanning $commit_count pull request commits"
+          "$RUNNER_TEMP/gitleaks" git --redact --verbose --exit-code 2 \
+            --log-opts="--diff-merges=first-parent $BASE_SHA..$HEAD_SHA" \
+            --report-format sarif --report-path "$RUNNER_TEMP/gitleaks-results.sarif"
+
+      - name: Upload Gitleaks report
+        if: ${{ !cancelled() && (steps.gitleaks_cli.outcome == 'success' || steps.gitleaks_cli.outcome == 'failure') }}
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+        with:
+          name: gitleaks-results.sarif
+          path: ${{ runner.temp }}/gitleaks-results.sarif
+          if-no-files-found: error

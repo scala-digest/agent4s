@@ -223,7 +223,7 @@ The bootstrap script `scalex-cli` contains `EXPECTED_VERSION` that must be bumpe
 ### Step 3: Plugin version bump
 5. Bump `EXPECTED_VERSION` in `plugins/agent4s/skills/agent4s/scripts/scalex-cli`
 6. Update `CHECKSUM_scalex_*` values in `scalex-cli` — get hashes from individual `.sha256` release assets (iterate: `gh release view vX.Y.Z --json assets --jq '.assets[] | select(.name | endswith(".sha256")) | .name'` then download each with `gh release download vX.Y.Z -p <name> -O -`)
-7. Bump `version` in `.claude-plugin/marketplace.json` (plugin version is only managed here, not in `plugins/agent4s/.claude-plugin/plugin.json`)
+7. Set the same plugin `version` in `.claude-plugin/marketplace.json` and `plugins/agent4s/.claude-plugin/plugin.json`. For a plugin-only update, keep the launcher's binary pin and checksums at the published native release.
 8. Commit, create PR, merge to main (main is protected — cannot push directly)
 
 Note: `marketplace.json` is at the repo root (`.claude-plugin/marketplace.json`), NOT inside `plugins/`.
